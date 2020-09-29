@@ -9,13 +9,14 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
+#include <unistd.h>
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 
-#define WIFI_SSID "slowboi" 
-#define WIFI_PASS "slowestofbois"    
+#define WIFI_SSID "Mi Pan" 
+#define WIFI_PASS "namnamnam"    
 #define MAXIMUM_RETRY  4
 #define PORT 25565
 
@@ -53,6 +54,12 @@ static void do_retransmit(const int sock)
 
             if(!strcmp(rx_buffer, "off")){
                 gpio_set_level(13, 0);
+            }
+            
+            if(!strcmp(rx_buffer, "turn")) {
+                gpio_set_level(14, 1);
+                sleep(1);
+                gpio_set_level(14, 0);
             }
 
             // send() can return less bytes than supplied length.
@@ -223,6 +230,9 @@ void app_main(void)
 
     gpio_pad_select_gpio(13);
     gpio_set_direction(13, GPIO_MODE_OUTPUT);
+
+    gpio_pad_select_gpio(14);
+    gpio_set_direction(14, GPIO_MODE_INPUT_OUTPUT);
 
     xTaskCreate(tcp_server_task, "tcp_server", 4096, NULL, 5, NULL);
 }
