@@ -55,6 +55,16 @@ static void do_retransmit(const int sock)
                 gpio_set_level(13, 0);
             }
 
+            if(!strcmp(rx_buffer, "spin")){ //spin a lil'
+                for(int i = 0; i<200; i++){
+                    gpio_set_level(14, 1);
+                    usleep(25);
+                    gpio_set_level(14, 0);
+                    usleep(25);
+                }
+                
+            }
+
             // send() can return less bytes than supplied length.
             // Walk-around for robust implementation. 
             int to_write = len;
@@ -223,6 +233,9 @@ void app_main(void)
 
     gpio_pad_select_gpio(13);
     gpio_set_direction(13, GPIO_MODE_OUTPUT);
+
+    gpio_pad_select_gpio(14);
+    gpio_set_direction(14, GPIO_MODE_OUTPUT);
 
     xTaskCreate(tcp_server_task, "tcp_server", 4096, NULL, 5, NULL);
 }
