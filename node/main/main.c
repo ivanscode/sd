@@ -55,11 +55,13 @@ static void do_retransmit(const int sock)
             if(!strcmp(rx_buffer, "off")){
                 gpio_set_level(13, 0);
             }
-            
-            if(!strcmp(rx_buffer, "turn")) {
-                gpio_set_level(14, 1);
-                sleep(1);
-                gpio_set_level(14, 0);
+            for(int fuck = 0; fuck < 360; fuck++) {
+                if(!strcmp(rx_buffer, "turn")) {
+                    gpio_set_level(14, 1);
+                    usleep(250);
+                    gpio_set_level(14, 0);
+                    usleep(250);
+                }
             }
 
             // send() can return less bytes than supplied length.
