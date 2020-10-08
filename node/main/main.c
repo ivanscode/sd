@@ -9,14 +9,15 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
+#include "driver/uart.h"
 #include <unistd.h>
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 
-#define WIFI_SSID "Mi Pan" 
-#define WIFI_PASS "namnamnam"    
+#define WIFI_SSID "buttstuff?" 
+#define WIFI_PASS "seabass!"    
 #define MAXIMUM_RETRY  4
 #define PORT 25565
 
@@ -55,13 +56,27 @@ static void do_retransmit(const int sock)
             if(!strcmp(rx_buffer, "off")){
                 gpio_set_level(13, 0);
             }
-            for(int fuck = 0; fuck < 360; fuck++) {
-                if(!strcmp(rx_buffer, "turn")) {
+            if(!strcmp(rx_buffer, "turn")) {
+                for(int fuck = 0; fuck < 500; fuck++) {
                     gpio_set_level(14, 1);
-                    usleep(250);
+                    //sleep(1);
+                    usleep(100);
                     gpio_set_level(14, 0);
-                    usleep(250);
+                    //sleep(1);
+                    printf("turning, %d\n", fuck);
+                    usleep(100);
                 }
+            }
+            if(!strcmp(rx_buffer, "read")){
+                // Read data from UART.
+                const int uart_num = UART_NUM_2;
+                uint8_t data[128];
+                int length = 0;
+                ESP_ERROR_CHECK(uart_get_buffered_data_len(uart_num, (size_t*)&length));
+                length = uart_read_bytes(uart_num, data, length, 100);
+                printf("data: %d\n", data[0]);
+                printf("length: %d\n", length);
+                uart_flush(UART_NUM_2);
             }
 
             // send() can return less bytes than supplied length.
@@ -234,7 +249,39 @@ void app_main(void)
     gpio_set_direction(13, GPIO_MODE_OUTPUT);
 
     gpio_pad_select_gpio(14);
-    gpio_set_direction(14, GPIO_MODE_INPUT_OUTPUT);
+    gpio_set_direction(14, GPIO_MODE_OUTPUT);
 
-    xTaskCreate(tcp_server_task, "tcp_server", 4096, NULL, 5, NULL);
+
+    gpio_pad_select_gpio(15);
+    gpio_set_direction(15, GPIO_MODE_OUTPUT);
+    
+    gpio_set_level(15, 0);
+/*
+    // Configure UART parameters
+    const int uart_num = UART_NUM_2;
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_CTS_RTS,
+        .rx_flow_ctrl_thresh = 122,
+    };
+    ESP_ERROR_CHECK(uart_param_config(uart_num, &uart_config));
+*/
+    // Set UART pins(TX: IO16 (UART2 default), RX: IO17 (UART2 default), RTS: IO18, CTS: IO19)
+    //ESP_ERROR_CHECK(uart_set_pin(UART_NUM_2, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, 18, 19));
+    //ESP_ERROR_CHECK(uart_set_pin(UART2, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, 18, 19));
+
+
+    // Setup UART buffered IO with event queue, 2 sets of 9 bits in queue
+    //const int uart_buffer_size = (128 * 9 * 2);
+    //QueueHandle_t uart_queue;
+    // Install UART driver using an event queue here
+    //ESP_ERROR_CHECK(uart_driver_install(UART_NUM_2, uart_buffer_size, uart_buffer_size, 10, &uart_queue, 0));
+    //printf("UART_NUM_2: %d\n", UART_NUM_2);
+    
+    xTaskCreate(tcp_server_task, "tcp_server", 8192, NULL, 5, NULL); //4096
+
+
 }

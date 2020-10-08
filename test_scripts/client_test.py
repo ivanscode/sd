@@ -5,7 +5,7 @@ import sys
 # -----------  Config  ----------
 PORT = 25565
 IP_VERSION = 'IPv4'
-IPV4 = '192.168.4.43'
+IPV4 = '192.168.1.122'
 # -------------------------------
 
 family_addr = socket.AF_INET
