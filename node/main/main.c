@@ -16,14 +16,17 @@
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 
-#define WIFI_SSID "buttstuff?" 
+#define WIFI_SSID "buttstuff?"
 #define WIFI_PASS "seabass!"    
 #define MAXIMUM_RETRY  4
 #define PORT 25565
+#define UART_NUM UART_NUM_2
+//2 sets of 9 bits in queue
+#define uart_buffer_size (128 * 9 * 2)
+static QueueHandle_t uart_queue;
 
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
-
 /* The event group allows multiple bits for each event, but we only care about two events:
  * - we are connected to the AP with an IP
  * - we failed to connect after the maximum amount of retries */
@@ -31,8 +34,45 @@ static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_FAIL_BIT      BIT1
 
 static const char *TAG = "Node";
-
 static int s_retry_num = 0;
+
+
+static void config_single_shot() {
+    //enter param config mode
+    uint8_t config_arr[8] = { 0x42, 0x57, 0x02, 0x00, 0x00, 0x00, 0x01, 0x02 };
+    int num_bytes_sent = uart_write_bytes(UART_NUM, config_arr, sizeof(uint8_t) * 8);
+    ESP_LOGI(TAG, "Wrote %d bytes\n", num_bytes_sent);
+    ESP_ERROR_CHECK(uart_wait_tx_done(UART_NUM, 100)); //wait till tx is empty or 100 rtos ticks
+    printf("test1");
+    int num_bytes_received = 0;
+    ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM, (size_t*)&num_bytes_received));
+    while(num_bytes_received < 8) {
+        uart_get_buffered_data_len(UART_NUM, (size_t*)&num_bytes_received);
+    }
+    uint8_t compare_arr[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    if(uart_read_bytes(UART_NUM, compare_arr, num_bytes_received, 100) != num_bytes_received) {
+        printf("Something went horribly wrong!\n");
+        return;
+    } 
+    uart_flush(UART_NUM);
+    printf("01 is success, FF is fail: %X\n", compare_arr[3]);
+    //set to use external trigger
+    memcpy(config_arr, (uint8_t[]){0x42,0x57,0x02,0x00,0x00,0x00,0x00,0x41} ,8);
+    num_bytes_sent = uart_write_bytes(UART_NUM, config_arr, sizeof(uint8_t) * 8);
+    ESP_LOGI(TAG, "Wrote %d bytes\n", num_bytes_sent);
+    ESP_ERROR_CHECK(uart_wait_tx_done(UART_NUM, 100)); //wait till tx is empty or 100 rtos ticks
+    ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM, (size_t*)&num_bytes_received));
+    while(num_bytes_received < 8) {
+        uart_get_buffered_data_len(UART_NUM, (size_t*)&num_bytes_received);
+    }
+    if(uart_read_bytes(UART_NUM, compare_arr, num_bytes_received, 100) != num_bytes_received) {
+        printf("Something went horribly wrong again!\n");
+        return;
+    } 
+    uart_flush(UART_NUM);
+    printf("01 is success, FF is fail: %X\n", compare_arr[3]);
+    printf("I'd be shocked if I make it this far\n");
+}
 
 static void do_retransmit(const int sock)
 {
@@ -67,16 +107,18 @@ static void do_retransmit(const int sock)
                     usleep(100);
                 }
             }
+            if(!strcmp(rx_buffer, "UART")){
+                config_single_shot();
+            }
             if(!strcmp(rx_buffer, "read")){
                 // Read data from UART.
-                const int uart_num = UART_NUM_2;
                 uint8_t data[128];
                 int length = 0;
-                ESP_ERROR_CHECK(uart_get_buffered_data_len(uart_num, (size_t*)&length));
-                length = uart_read_bytes(uart_num, data, length, 100);
+                ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM, (size_t*)&length));
+                length = uart_read_bytes(UART_NUM, data, length, 100);
                 printf("data: %d\n", data[0]);
                 printf("length: %d\n", length);
-                uart_flush(UART_NUM_2);
+                uart_flush(UART_NUM);
             }
 
             // send() can return less bytes than supplied length.
@@ -241,46 +283,40 @@ void app_main(void)
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
     wifi_init_sta();
 
+    //internal LED
     gpio_pad_select_gpio(13);
     gpio_set_direction(13, GPIO_MODE_OUTPUT);
-
+    //step
     gpio_pad_select_gpio(14);
     gpio_set_direction(14, GPIO_MODE_OUTPUT);
 
-
+    //dir
     gpio_pad_select_gpio(15);
     gpio_set_direction(15, GPIO_MODE_OUTPUT);
-    
     gpio_set_level(15, 0);
-/*
-    // Configure UART parameters
-    const int uart_num = UART_NUM_2;
+
+    //UART params
     uart_config_t uart_config = {
         .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_CTS_RTS,
-        .rx_flow_ctrl_thresh = 122,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_APB,
     };
-    ESP_ERROR_CHECK(uart_param_config(uart_num, &uart_config));
-*/
-    // Set UART pins(TX: IO16 (UART2 default), RX: IO17 (UART2 default), RTS: IO18, CTS: IO19)
-    //ESP_ERROR_CHECK(uart_set_pin(UART_NUM_2, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, 18, 19));
-    //ESP_ERROR_CHECK(uart_set_pin(UART2, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, 18, 19));
+    ESP_ERROR_CHECK(uart_param_config(UART_NUM, &uart_config));
 
-
-    // Setup UART buffered IO with event queue, 2 sets of 9 bits in queue
-    //const int uart_buffer_size = (128 * 9 * 2);
-    //QueueHandle_t uart_queue;
-    // Install UART driver using an event queue here
-    //ESP_ERROR_CHECK(uart_driver_install(UART_NUM_2, uart_buffer_size, uart_buffer_size, 10, &uart_queue, 0));
-    //printf("UART_NUM_2: %d\n", UART_NUM_2);
+    //Install driver for UART
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM, uart_buffer_size, uart_buffer_size, 10, &uart_queue, 0));
     
+    // Set UART pins(TX: IO16 (UART2 default), RX: IO17 (UART2 default), RTS: IO18, CTS: IO19)
+    ESP_ERROR_CHECK(uart_set_pin(UART_NUM, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+
+    //config_single_shot();
+
     xTaskCreate(tcp_server_task, "tcp_server", 8192, NULL, 5, NULL); //4096
 
 
