@@ -16,8 +16,8 @@
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 
-#define WIFI_SSID "buttstuff?"
-#define WIFI_PASS "seabass!"    
+#define WIFI_SSID "slowboi"
+#define WIFI_PASS "slowestofbois"    
 #define MAXIMUM_RETRY  4
 #define PORT 25565
 #define UART_NUM UART_NUM_2
@@ -43,12 +43,14 @@ static void config_single_shot() {
     int num_bytes_sent = uart_write_bytes(UART_NUM, config_arr, sizeof(uint8_t) * 8);
     ESP_LOGI(TAG, "Wrote %d bytes\n", num_bytes_sent);
     printf("test0\n");
+    //this line below should wait until the shit is pushed to the fifo queue, and it returns fine
+    //however the scope says nothing is actually output 
     ESP_ERROR_CHECK(uart_wait_tx_done(UART_NUM, 10)); //wait till tx is empty or 100 rtos ticks
     printf("test1\n");
     int num_bytes_received = 0;
 
     uart_event_t event;
-    if(xQueueReceive(uart_queue, (void * )&event, 10)) {
+    if(xQueueReceive(uart_queue, (void * )&event, 100)) {
         ESP_LOGI(TAG, "uart event type: %d", event.type);
     } else {
         printf("No event\n");
@@ -57,8 +59,10 @@ static void config_single_shot() {
     ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM, (size_t*)&num_bytes_received));
     printf("recieved %d bytes\n", num_bytes_received);
     while(num_bytes_received < 8) {
+        //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        //this doesn't read anything so rtos times out on it
         uart_get_buffered_data_len(UART_NUM, (size_t*)&num_bytes_received);
-        printf("recieved %d bytes\n", num_bytes_received);
+        //printf("recieved %d bytes", num_bytes_received);
     }
     uint8_t compare_arr[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
     if(uart_read_bytes(UART_NUM, compare_arr, num_bytes_received, 100) != num_bytes_received) {
