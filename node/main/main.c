@@ -42,12 +42,23 @@ static void config_single_shot() {
     uint8_t config_arr[8] = { 0x42, 0x57, 0x02, 0x00, 0x00, 0x00, 0x01, 0x02 };
     int num_bytes_sent = uart_write_bytes(UART_NUM, config_arr, sizeof(uint8_t) * 8);
     ESP_LOGI(TAG, "Wrote %d bytes\n", num_bytes_sent);
-    ESP_ERROR_CHECK(uart_wait_tx_done(UART_NUM, 100)); //wait till tx is empty or 100 rtos ticks
-    printf("test1");
+    printf("test0\n");
+    ESP_ERROR_CHECK(uart_wait_tx_done(UART_NUM, 10)); //wait till tx is empty or 100 rtos ticks
+    printf("test1\n");
     int num_bytes_received = 0;
+
+    uart_event_t event;
+    if(xQueueReceive(uart_queue, (void * )&event, 10)) {
+        ESP_LOGI(TAG, "uart event type: %d", event.type);
+    } else {
+        printf("No event\n");
+    }
+
     ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_NUM, (size_t*)&num_bytes_received));
+    printf("recieved %d bytes\n", num_bytes_received);
     while(num_bytes_received < 8) {
         uart_get_buffered_data_len(UART_NUM, (size_t*)&num_bytes_received);
+        printf("recieved %d bytes\n", num_bytes_received);
     }
     uint8_t compare_arr[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
     if(uart_read_bytes(UART_NUM, compare_arr, num_bytes_received, 100) != num_bytes_received) {
@@ -107,9 +118,9 @@ static void do_retransmit(const int sock)
                     usleep(100);
                 }
             }
-            if(!strcmp(rx_buffer, "UART")){
-                config_single_shot();
-            }
+            //if(!strcmp(rx_buffer, "UART")){
+            //   config_single_shot();
+            //}
             if(!strcmp(rx_buffer, "read")){
                 // Read data from UART.
                 uint8_t data[128];
@@ -307,17 +318,18 @@ void app_main(void)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_APB,
     };
-    ESP_ERROR_CHECK(uart_param_config(UART_NUM, &uart_config));
+    //ESP_ERROR_CHECK(uart_param_config(UART_NUM, &uart_config));
 
     //Install driver for UART
-    ESP_ERROR_CHECK(uart_driver_install(UART_NUM, uart_buffer_size, uart_buffer_size, 10, &uart_queue, 0));
-    
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM, uart_buffer_size, uart_buffer_size, 18, &uart_queue, 0));
+    ESP_ERROR_CHECK(uart_param_config(UART_NUM, &uart_config));
     // Set UART pins(TX: IO16 (UART2 default), RX: IO17 (UART2 default), RTS: IO18, CTS: IO19)
     ESP_ERROR_CHECK(uart_set_pin(UART_NUM, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    uart_pattern_queue_reset(UART_NUM, 18);
 
-    //config_single_shot();
+    config_single_shot();
 
-    xTaskCreate(tcp_server_task, "tcp_server", 8192, NULL, 5, NULL); //4096
+    xTaskCreate(tcp_server_task, "tcp_server", 8192, NULL, 12, NULL); //4096, 5
 
 
 }
