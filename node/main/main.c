@@ -9,6 +9,8 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
+#include "driver/spi_master.h"
+#include "driver/uart.h"
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
@@ -18,6 +20,28 @@
 #define WIFI_PASS "slowestofbois"    
 #define MAXIMUM_RETRY  4
 #define PORT 25565
+
+#define PIN_NUM_MISO 19
+#define PIN_NUM_MOSI 18
+#define PIN_NUM_CLK 5
+#define PIN_NUM_CS 21
+#define DMA_CHAN 2
+
+typedef struct {
+    uint8_t cmd[8];
+    uint8_t databytes; //No of data in data; bit 7 = delay after set; 0xFF = end of cmds.
+} radio_cmd_t;
+
+DRAM_ATTR static const radio_cmd_t cmds[]={
+    {{0xE8, 0x11, 0x80}, 3},
+    {{0xE8, 0x12, 0x0A}, 3},
+    {{0xE8, 0x12, 0x0F}, 3},
+    {{0xAA, 0x01}, 2},
+    {{0xAA, 0x00}, 2},
+    {{0x6A, 0x04}, 2} //Read temperature
+};
+
+spi_device_handle_t spi;
 
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
@@ -30,9 +54,62 @@ static EventGroupHandle_t s_wifi_event_group;
 
 static const char *TAG = "Node";
 
+void scan_task();
+
 static int s_retry_num = 0;
 
-static void do_retransmit(const int sock)
+int sock;
+
+void reset_dwm(){
+    gpio_pad_select_gpio(32);
+    gpio_set_direction(32, GPIO_MODE_OUTPUT_OD);
+    gpio_set_level(32, 0);
+
+    usleep(1);
+
+    gpio_pulldown_dis(32);
+    gpio_set_level(32, 1);
+
+    sleep(2);
+}
+
+void write_off(uint8_t addr, uint8_t off, uint8_t val){
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+
+    uint8_t cmd[3] = {(addr | 0xC0), off, val};
+    t.length=24;
+    t.tx_buffer=cmd;
+
+    spi_device_polling_transmit(spi, &t);
+}
+
+void initialize_dwm(){
+    write_off(0x24, 0x00, 0x04);
+}
+
+void radio_tx(spi_device_handle_t spi, const uint8_t *cmd, int len){
+    spi_transaction_t t;
+    if (len==0) return;             //no need to send anything
+    memset(&t, 0, sizeof(t));       //Zero out the transaction
+    t.length=len*8;                 //Len is in bytes, transaction length is in bits.
+    t.tx_buffer=cmd;               //Data
+    t.flags = SPI_TRANS_USE_RXDATA;
+    spi_device_polling_transmit(spi, &t);  //Transmit!
+
+    if(cmd[0] == 0x6A){
+        int temp = *(uint32_t*)t.rx_data;
+        ESP_LOGI(TAG, "UWB Temperature is %d", temp);
+    }
+}
+
+void radio_get_temperature(spi_device_handle_t spi){
+    for(int i = 0; i < 6; i++){
+        radio_tx(spi, cmds[i].cmd, cmds[i].databytes&0x1F);
+    }
+}
+
+static void do_retransmit()
 {
     int len;
     char rx_buffer[128];
@@ -54,6 +131,26 @@ static void do_retransmit(const int sock)
             if(!strcmp(rx_buffer, "off")){
                 gpio_set_level(13, 0);
             }
+
+            if(!strcmp(rx_buffer, "spin")){ //spin a lil'
+                for(int i = 0; i < 800; i++){
+                    gpio_set_level(14, 1);
+                    usleep(1000);
+                    gpio_set_level(14, 0);
+                    usleep(1000);
+                }
+                
+            }
+
+            if(!strcmp(rx_buffer, "temp")){
+                radio_get_temperature(spi);
+            }
+
+            if(!strcmp(rx_buffer, "measure")){
+                //xTaskCreate(scan_task, "scan_task", 4024, NULL, 5, NULL);
+                scan_task();
+            }
+            
 
             // send() can return less bytes than supplied length.
             // Walk-around for robust implementation. 
@@ -109,7 +206,7 @@ static void tcp_server_task(void *pvParameters){
 
         struct sockaddr_in source_addr; 
         uint addr_len = sizeof(source_addr);
-        int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
+        sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
         if (sock < 0) {
             ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
             break;
@@ -208,6 +305,87 @@ void wifi_init_sta(void)
     vEventGroupDelete(s_wifi_event_group);
 }
 
+void radio_spi_pre_transfer_callback(spi_transaction_t *t)
+{
+    //int dc=(int)t->user;
+    //gpio_set_level(PIN_NUM_DC, dc);
+    ESP_LOGI(TAG, "Transfer on SPI");
+}
+
+void step_one(){
+    gpio_set_level(14, 1);
+    usleep(1000);
+    gpio_set_level(14, 0);
+    usleep(1000);
+}
+
+uint16_t getMeasurement(){
+    uint8_t data[8];
+    while (1){
+        uart_read_bytes(UART_NUM_2, data, 8, 50);
+        //ESP_LOGI(TAG, "%02x", (char)byte[0]);
+        if(data[0] == 0x59 && data[1] == 0x59){
+            break;
+        }
+    }
+
+    //uart_read_bytes(UART_NUM_2, data, 6, 50);
+
+    uint16_t out;
+    out = data[2] | (data[3] << 8);
+
+    return out;
+}
+
+//void *pvParameters
+void scan_task(){
+    char tx_buffer[1600];
+    for(int i = 0; i < 800; i++){
+        uint16_t dist = getMeasurement();
+        ESP_LOGI(TAG, "Measurement: %02x", dist);
+
+        tx_buffer[i * 2] = (uint8_t) dist;
+        tx_buffer[i * 2 + 1] = (uint8_t)(dist >> 8);
+
+        step_one();
+    }
+
+    send(sock, tx_buffer, 1600, 0);
+}
+
+void echo_task(void *pvParameters){   
+
+    uint8_t *data = (uint8_t *) malloc(1024);
+    uint8_t conf[8] = {0x42, 0x57, 0x02, 0x00, 0x00, 0x00, 0x01, 0x06};
+    uart_write_bytes(UART_NUM_2, (const char *) conf, 8);
+    uart_wait_tx_done(UART_NUM_2, 100);
+    char* test_str = "This is a test string.\n";
+
+    while (1) {
+         // Write data back to the UART
+        uart_write_bytes(UART_NUM_2, (const char*)test_str, strlen(test_str));
+        uart_wait_tx_done(UART_NUM_2, 100);
+        // Read data from the UART
+        //int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 20 / portTICK_RATE_MS);   
+    }
+
+    /*
+    while (1) {
+        // Read data from the UART
+        while (1){
+            uint8_t *byte = (uint8_t *) malloc(8);
+            uart_read_bytes(UART_NUM_2, byte, 8, 50);
+            if(byte[0] == 0x59){
+                break;
+            }
+        }
+
+        int len = uart_read_bytes(UART_NUM_2, data, 8, 50); 
+        ESP_LOGI(TAG, "Received %d", len);
+    }
+    */
+}
+
 void app_main(void)
 {
     //Initialize NVS
@@ -224,5 +402,51 @@ void app_main(void)
     gpio_pad_select_gpio(13);
     gpio_set_direction(13, GPIO_MODE_OUTPUT);
 
-    xTaskCreate(tcp_server_task, "tcp_server", 4096, NULL, 5, NULL);
+    gpio_pad_select_gpio(14);
+    gpio_set_direction(14, GPIO_MODE_OUTPUT);
+
+    gpio_pad_select_gpio(15);
+    gpio_set_direction(15, GPIO_MODE_OUTPUT);
+    gpio_set_level(15, 0);
+
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_APB,
+    };
+    uart_param_config(UART_NUM_2, &uart_config);
+    uart_set_pin(UART_NUM_2, 16, 17, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    QueueHandle_t uart_queue;
+    uart_driver_install(UART_NUM_2, 1024, 1024, 10, &uart_queue, 0);
+
+    spi_bus_config_t buscfg={
+        .miso_io_num = PIN_NUM_MISO,
+        .mosi_io_num = PIN_NUM_MOSI,
+        .sclk_io_num = PIN_NUM_CLK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 0
+    };
+
+    spi_device_interface_config_t devcfg={
+        .clock_speed_hz=10*1000,           //Clock out at 10 MHz
+        .mode=0,                                //SPI mode 0
+        .spics_io_num = PIN_NUM_CS,               //CS pin
+        .queue_size = 7,                          //We want to be able to queue 7 transactions at a time
+        .pre_cb=radio_spi_pre_transfer_callback,  //Specify pre-transfer callback to handle D/C line
+    };
+
+    spi_bus_initialize(1, &buscfg, DMA_CHAN);
+
+    spi_bus_add_device(1, &devcfg, &spi);
+
+    reset_dwm();
+
+    initialize_dwm();
+
+    xTaskCreate(tcp_server_task, "tcp_server", 4024, NULL, 5, NULL);
+    //xTaskCreate(echo_task, "uart_echo_task", 4024, NULL, 5, NULL);
 }
