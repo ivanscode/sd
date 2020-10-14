@@ -22,6 +22,7 @@ class SocketManager:
 
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.settimeout(80)
         except socket.error as msg:
             print('Could not create socket: ' + str(msg[0]) + ': ' + msg[1])
             sys.exit(1)
@@ -40,10 +41,10 @@ class SocketManager:
     def send(self, cmd):
         msg = cmd.encode()
         self.sock.sendall(msg)
-        data = self.sock.recv(1024)
+        data = self.sock.recv(2048)
         if not data:
             return
-        print('Node @ {}: {}'.format(self.ip, data.decode()))
+        print('Node @ {}: {}'.format(self.ip, data))
 
     
         

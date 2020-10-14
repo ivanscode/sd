@@ -29,8 +29,8 @@ while True:
     assert isinstance(msg, str)
     msg = msg.encode()
     sock.sendall(msg)
-    data = sock.recv(1024)
-    if not data:
-        break
-    print('Reply: ' + data.decode())
+    #data = sock.recv(1024)
+    #if not data:
+    #    break
+    #print('Reply: ' + data.decode())
 sock.close()

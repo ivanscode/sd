@@ -5,7 +5,7 @@ import time
 DEVICE_COUNT = 3 #Not used atm
 NET_BASE = '192.168.1.' #Change depending on network
 RL = 2 #From IP.2
-RH = 8 #To IP.20
+RH = 10 #To IP.20
 
 class Command:
     def __init__(self, data):
@@ -51,8 +51,25 @@ def process(devices):
         msg = input('Enter command: ')
         assert isinstance(msg, str)
 
-        cmd = Command(msg)
-        devices[cmd.id].send(cmd.msg)
+        if(msg == 'spin'):
+            devices[0].send('spin')
+            devices[1].send('spin')
+
+        if(msg == 'test'):
+            devices[0].send('temp')
+            devices[1].send('on')
+
+        elif(msg == 'off'):
+            devices[0].send('off')
+            devices[1].send('off')
+
+        elif(msg == 'on'):
+            devices[0].send('on')
+            devices[1].send('on')
+        
+        else:
+            cmd = Command(msg)
+            devices[cmd.id].send(cmd.msg)
 
 
 def main():
