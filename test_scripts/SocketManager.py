@@ -41,10 +41,21 @@ class SocketManager:
     def send(self, cmd):
         msg = cmd.encode()
         self.sock.sendall(msg)
-        data = self.sock.recv(2048)
-        if not data:
-            return
-        print('Node @ {}: {}'.format(self.ip, data))
+
+        if cmd == 'temp':
+            data = self.sock.recv(4)
+
+            num = int.from_bytes(data, 'little')
+
+            for i in range(4):
+                print('{}'.format(num & (0xFF << (i * 8))))
+
+        else:
+            data = self.sock.recv(2048)
+            if not data:
+                return
+
+            print('Node @ {}: {}'.format(self.ip, data))
 
     
         
