@@ -38,10 +38,24 @@ class SocketManager:
         #No need for this right now
         pass
 
+    def collectData(self):
+        f = open("data.txt", "a")
+        self.sock.sendall('collect'.encode())
+        if(self.sock.recv(2).decode() != 'ok'):
+            return
+        for i in range(800):
+            data = self.sock.recv(2)
+            f.write("{}\n".format(int.from_bytes(data, 'little')))
+            print('Distance of {} from node @ {}'.format(int.from_bytes(data, 'little'), self.ip))
+        
+        
+        f.close()
+
+
     def send(self, cmd):
         msg = cmd.encode()
         self.sock.sendall(msg)
-        data = self.sock.recv(2048)
+        data = self.sock.recv(3000)
         if not data:
             return
         print('Node @ {}: {}'.format(self.ip, data))

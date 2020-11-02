@@ -51,11 +51,18 @@ def process(devices):
         msg = input('Enter command: ')
         assert isinstance(msg, str)
 
-        if(msg == 'spin'):
+        if(msg == 'collect'):
+            devices[0].collectData()
+
+        elif(msg == 'demo'):
+            devices[1].send('spin')
+            devices[0].send('measure')            
+
+        elif(msg == 'spin'):
             devices[0].send('spin')
             devices[1].send('spin')
 
-        if(msg == 'test'):
+        elif(msg == 'test'):
             devices[0].send('temp')
             devices[1].send('on')
 

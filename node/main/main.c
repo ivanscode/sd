@@ -98,14 +98,19 @@ void radio_tx(spi_device_handle_t spi, const uint8_t *cmd, int len){
     spi_device_polling_transmit(spi, &t);  //Transmit!
 
     if(cmd[0] == 0x6A){
-        int temp = *(uint32_t*)t.rx_data;
-        ESP_LOGI(TAG, "UWB Temperature is %d", temp);
+        uint32_t temp = *(uint32_t*)t.rx_data;
+        char msg[4];
+        for(int i = 0; i < 4; i++){
+            msg[i] = temp & (0xFF << (i * 8));
+        }
+        send(sock, msg, 4, 0);
+        //ESP_LOGI(TAG, "UWB Temperature is %d", temp);
     }
 }
 
 void radio_get_temperature(spi_device_handle_t spi){
     for(int i = 0; i < 6; i++){
-        radio_tx(spi, cmds[i].cmd, cmds[i].databytes&0x1F);
+        radio_tx(spi, cmds[i].cmd, cmds[i].databytes);
     }
 }
 
@@ -148,6 +153,17 @@ static void do_retransmit()
 
             if(!strcmp(rx_buffer, "measure")){
                 //xTaskCreate(scan_task, "scan_task", 4024, NULL, 5, NULL);
+                scan_task();
+            }
+
+            if(!strcmp(rx_buffer, "reset")){
+                reset_dwm();
+                initialize_dwm();
+            }
+
+            if(!strcmp(rx_buffer, "collect")){
+                send(sock, "ok", 2, 0);
+
                 scan_task();
             }
             
@@ -331,26 +347,27 @@ uint16_t getMeasurement(){
 
     //uart_read_bytes(UART_NUM_2, data, 6, 50);
 
-    uint16_t out;
-    out = data[2] | (data[3] << 8);
+    uint16_t out =  data[2] + (data[3] << 8);
 
     return out;
 }
 
 //void *pvParameters
 void scan_task(){
-    char tx_buffer[1600];
+    char tx_buffer[2];
     for(int i = 0; i < 800; i++){
         uint16_t dist = getMeasurement();
-        ESP_LOGI(TAG, "Measurement: %02x", dist);
+        ESP_LOGI(TAG, "Measurement: %d", dist);
 
-        tx_buffer[i * 2] = (uint8_t) dist;
-        tx_buffer[i * 2 + 1] = (uint8_t)(dist >> 8);
+        tx_buffer[0] = dist & 0xFF;
+        tx_buffer[1] = dist >> 8;
+
+        send(sock, tx_buffer, 2, 0);
 
         step_one();
     }
 
-    send(sock, tx_buffer, 1600, 0);
+    //send(sock, tx_buffer, 16, 0);
 }
 
 void echo_task(void *pvParameters){   
@@ -428,7 +445,7 @@ void app_main(void)
         .sclk_io_num = PIN_NUM_CLK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 0
+        .max_transfer_sz = 4094
     };
 
     spi_device_interface_config_t devcfg={
@@ -439,13 +456,9 @@ void app_main(void)
         .pre_cb=radio_spi_pre_transfer_callback,  //Specify pre-transfer callback to handle D/C line
     };
 
-    spi_bus_initialize(1, &buscfg, DMA_CHAN);
+    ESP_ERROR_CHECK(spi_bus_initialize(1, &buscfg, DMA_CHAN));
 
-    spi_bus_add_device(1, &devcfg, &spi);
-
-    reset_dwm();
-
-    initialize_dwm();
+    ESP_ERROR_CHECK(spi_bus_add_device(1, &devcfg, &spi));
 
     xTaskCreate(tcp_server_task, "tcp_server", 4024, NULL, 5, NULL);
     //xTaskCreate(echo_task, "uart_echo_task", 4024, NULL, 5, NULL);
