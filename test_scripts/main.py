@@ -4,7 +4,7 @@ import time
 
 DEVICE_COUNT = 3 #Not used atm
 NET_BASE = '192.168.1.' #Change depending on network
-RL = 2 #From IP.2
+RL = 4 #From IP.2
 RH = 10 #To IP.20
 
 class Command:

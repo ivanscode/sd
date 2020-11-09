@@ -57,13 +57,43 @@ class SocketManager:
         self.sock.sendall(msg)
 
         if cmd == 'temp':
+            voltage = self.sock.recv(4)
+            temp = self.sock.recv(4)
+
+            num = int.from_bytes(voltage, 'little')
+
+            for i in range(4):
+                print('{}'.format((num >> (i * 8)) & 0xFF))
+
+            num = int.from_bytes(temp, 'little')
+
+            for i in range(4):
+                print('{}'.format((num >> (i * 8)) & 0xFF))
+
+        elif cmd == 'id':
             data = self.sock.recv(4)
+
+            #hexed = data.hex()
+            #real = hexed[6:8] + hexed[4:6] + hexed[2:4] + hexed[0:2]
+
+            print(data.hex())
 
             num = int.from_bytes(data, 'little')
 
-            for i in range(4):
-                print('{}'.format(num & (0xFF << (i * 8))))
+            for i in range(5):
+                print('{}'.format((num >> (i * 8)) & 0xFF))
 
+            print('Node @ {}: {}'.format(self.ip, self.sock.recv(2)))
+
+        elif cmd == 'temp':
+            data = self.sock.recv(2)
+
+            num = int.from_bytes(data, 'little')
+
+            for i in range(2):
+                print('{}'.format((num >> (i * 8)) & 0xFF))
+
+            print('Node @ {}: {}'.format(self.ip, self.sock.recv(4)))
         else:
             data = self.sock.recv(2048)
             if not data:

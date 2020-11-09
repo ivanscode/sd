@@ -32,15 +32,6 @@ typedef struct {
     uint8_t databytes; //No of data in data; bit 7 = delay after set; 0xFF = end of cmds.
 } radio_cmd_t;
 
-DRAM_ATTR static const radio_cmd_t cmds[]={
-    {{0xE8, 0x11, 0x80}, 3},
-    {{0xE8, 0x12, 0x0A}, 3},
-    {{0xE8, 0x12, 0x0F}, 3},
-    {{0xAA, 0x01}, 2},
-    {{0xAA, 0x00}, 2},
-    {{0x6A, 0x04}, 2} //Read temperature
-};
-
 spi_device_handle_t spi;
 
 /* FreeRTOS event group to signal when we are connected*/
@@ -84,34 +75,69 @@ void write_off(uint8_t addr, uint8_t off, uint8_t val){
     spi_device_polling_transmit(spi, &t);
 }
 
+void read_off(uint8_t addr, uint8_t off, int expected, uint8_t * result){
+    spi_transaction_t t;          
+    memset(&t, 0, sizeof(t));  
+
+    uint8_t cmd[2 + expected];
+    cmd[0] = addr | 0x40;
+    cmd[1] = off;
+
+    for(int i = 2; i < (2 + expected); i++){
+        cmd[i] = 0x00;
+    }     
+
+    t.length = 16 + expected * 8;                 
+    t.tx_buffer = cmd;
+    t.rx_buffer = result;
+
+    spi_device_polling_transmit(spi, &t);
+}
+
 void initialize_dwm(){
     write_off(0x24, 0x00, 0x04);
 }
 
-void radio_tx(spi_device_handle_t spi, const uint8_t *cmd, int len){
-    spi_transaction_t t;
-    if (len==0) return;             //no need to send anything
-    memset(&t, 0, sizeof(t));       //Zero out the transaction
-    t.length=len*8;                 //Len is in bytes, transaction length is in bits.
-    t.tx_buffer=cmd;               //Data
-    t.flags = SPI_TRANS_USE_RXDATA;
-    spi_device_polling_transmit(spi, &t);  //Transmit!
+void send32(uint32_t val){
+    char msg[4];
+    for(int i = 0; i < 4; i++){
+        msg[i] = (val >> (i * 8)) & 0xFF;
+    }
+    send(sock, msg, 4, 0);
+}
 
-    if(cmd[0] == 0x6A){
-        uint32_t temp = *(uint32_t*)t.rx_data;
-        char msg[4];
-        for(int i = 0; i < 4; i++){
-            msg[i] = temp & (0xFF << (i * 8));
-        }
-        send(sock, msg, 4, 0);
-        //ESP_LOGI(TAG, "UWB Temperature is %d", temp);
+void flipArray(uint8_t * arr, int s, int e){
+    int temp;
+    while(s < e){
+        temp = arr[s];
+        arr[s] = arr[e];
+        arr[e] = temp;
+        s++;
+        e--;
     }
 }
 
-void radio_get_temperature(spi_device_handle_t spi){
-    for(int i = 0; i < 6; i++){
-        radio_tx(spi, cmds[i].cmd, cmds[i].databytes);
-    }
+void getDeviceID(){
+    uint8_t id[6];
+    read_off(0x00, 0x00, 4, id);
+    send32(*(uint32_t*)&id[2]);
+}
+
+void radio_get_temperature(){
+    write_off(0x28, 0x11, 0x80);
+    write_off(0x28, 0x12, 0x0A);
+    write_off(0x28, 0x12, 0x0F);
+    write_off(0x2A, 0x00, 0x01);
+    write_off(0x2A, 0x00, 0x00);
+
+    uint8_t temp[3];
+    uint8_t volt[3];
+
+    read_off(0x2A, 0x03, 1, volt);
+    read_off(0x2A, 0x04, 1, temp);
+
+    char msg[2] = {volt[2], temp[2]};
+    send(sock, msg, 2, 0);
 }
 
 static void do_retransmit()
@@ -148,7 +174,11 @@ static void do_retransmit()
             }
 
             if(!strcmp(rx_buffer, "temp")){
-                radio_get_temperature(spi);
+                radio_get_temperature();
+            }
+
+            if(!strcmp(rx_buffer, "id")){
+                getDeviceID();
             }
 
             if(!strcmp(rx_buffer, "measure")){
@@ -345,8 +375,6 @@ uint16_t getMeasurement(){
         }
     }
 
-    //uart_read_bytes(UART_NUM_2, data, 6, 50);
-
     uint16_t out =  data[2] + (data[3] << 8);
 
     return out;
@@ -366,41 +394,6 @@ void scan_task(){
 
         step_one();
     }
-
-    //send(sock, tx_buffer, 16, 0);
-}
-
-void echo_task(void *pvParameters){   
-
-    uint8_t *data = (uint8_t *) malloc(1024);
-    uint8_t conf[8] = {0x42, 0x57, 0x02, 0x00, 0x00, 0x00, 0x01, 0x06};
-    uart_write_bytes(UART_NUM_2, (const char *) conf, 8);
-    uart_wait_tx_done(UART_NUM_2, 100);
-    char* test_str = "This is a test string.\n";
-
-    while (1) {
-         // Write data back to the UART
-        uart_write_bytes(UART_NUM_2, (const char*)test_str, strlen(test_str));
-        uart_wait_tx_done(UART_NUM_2, 100);
-        // Read data from the UART
-        //int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 20 / portTICK_RATE_MS);   
-    }
-
-    /*
-    while (1) {
-        // Read data from the UART
-        while (1){
-            uint8_t *byte = (uint8_t *) malloc(8);
-            uart_read_bytes(UART_NUM_2, byte, 8, 50);
-            if(byte[0] == 0x59){
-                break;
-            }
-        }
-
-        int len = uart_read_bytes(UART_NUM_2, data, 8, 50); 
-        ESP_LOGI(TAG, "Received %d", len);
-    }
-    */
 }
 
 void app_main(void)
@@ -451,15 +444,20 @@ void app_main(void)
     spi_device_interface_config_t devcfg={
         .clock_speed_hz=10*1000,           //Clock out at 10 MHz
         .mode=0,                                //SPI mode 0
-        .spics_io_num = PIN_NUM_CS,               //CS pin
+        .spics_io_num = PIN_NUM_CS,              //CS pin
         .queue_size = 7,                          //We want to be able to queue 7 transactions at a time
         .pre_cb=radio_spi_pre_transfer_callback,  //Specify pre-transfer callback to handle D/C line
     };
+
+    //gpio_pad_select_gpio(21);
+    //gpio_set_direction(21, GPIO_MODE_OUTPUT);
+    //gpio_set_level(21, 1);
+
+    reset_dwm();
 
     ESP_ERROR_CHECK(spi_bus_initialize(1, &buscfg, DMA_CHAN));
 
     ESP_ERROR_CHECK(spi_bus_add_device(1, &devcfg, &spi));
 
     xTaskCreate(tcp_server_task, "tcp_server", 4024, NULL, 5, NULL);
-    //xTaskCreate(echo_task, "uart_echo_task", 4024, NULL, 5, NULL);
 }
