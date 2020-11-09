@@ -95,6 +95,12 @@ class SocketManager:
             bits = bin(num)
             print(bits)
 
+            data = self.sock.recv(4)
+
+            num = int.from_bytes(data, 'little')
+            bits = bin(num)
+            print(bits)
+
             print('Node @ {}: {}'.format(self.ip, self.sock.recv(5)))
             
         else:

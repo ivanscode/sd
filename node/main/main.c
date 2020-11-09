@@ -30,6 +30,7 @@
 #define DWM_TX_BUFFER 0x09
 #define DWM_TX_CTRL 0x0D
 #define DWM_TX_FCTRL 0x08
+#define DWM_TXBOFFS 22
 
 typedef struct {
     uint8_t cmd[8];
@@ -148,10 +149,21 @@ void flipArray(uint8_t * arr, int s, int e){
 void sayHello(){
     uint8_t hello[5] = {'h', 'e', 'l', 'l', 'o'};
     dwm_set_txbuffer(hello);
-    uint8_t fctrl[4];
+    uint8_t fctrl[5];
     read_off(DWM_TX_FCTRL, 0, 4, fctrl);
 
-    char msg[4] = {fctrl[0], fctrl[1], fctrl[2], fctrl[3]};
+    char msg[4] = {fctrl[1], fctrl[2], fctrl[3], fctrl[4]};
+    send(sock, msg, 4, 0);
+
+    uint8_t len = 5;
+
+    uint8_t config[4] = {len, fctrl[3], fctrl[2] & ~(0x03 << 6), 0};
+
+    write_off_data(DWM_TX_FCTRL, 0, config);
+
+    read_off(DWM_TX_FCTRL, 0, 4, fctrl);
+
+    char msg[4] = {fctrl[1], fctrl[2], fctrl[3], fctrl[4]};
     send(sock, msg, 4, 0);
 }
 
