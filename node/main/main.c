@@ -155,7 +155,6 @@ void sayHello(){
     char msg[4] = {fctrl[1], fctrl[2], fctrl[3], fctrl[4]};
     send(sock, msg, 4, 0);
 
-    /*
     uint8_t len = 5;
 
     uint8_t config[4] = {len, fctrl[3], fctrl[2] & ~(0x03 << 6), 0};
@@ -169,7 +168,6 @@ void sayHello(){
     } 
 
     send(sock, msg, 4, 0);
-    */
 }
 
 void getDeviceID(){
