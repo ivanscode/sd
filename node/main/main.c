@@ -85,16 +85,16 @@ void write_off_data(uint8_t addr, uint8_t off, uint8_t * data){
     memset(&t, 0, sizeof(t));
 
     uint8_t len = sizeof(data);
-    uint8_t cmd[2 + len / 8];
+    uint8_t cmd[2 + len];
 
     cmd[0] = addr | 0xC0;
     cmd[1] = off;
 
-    for(int i = 2; i < (2 + len / 8); i++){
+    for(int i = 2; i < (2 + len); i++){
         cmd[i] = data[i - 2];
     }
 
-    t.length = 16 + len;
+    t.length = 16 + len * 8;
     t.tx_buffer=cmd;
 
     spi_device_polling_transmit(spi, &t);
@@ -155,6 +155,7 @@ void sayHello(){
     char msg[4] = {fctrl[1], fctrl[2], fctrl[3], fctrl[4]};
     send(sock, msg, 4, 0);
 
+    /*
     uint8_t len = 5;
 
     uint8_t config[4] = {len, fctrl[3], fctrl[2] & ~(0x03 << 6), 0};
@@ -163,8 +164,12 @@ void sayHello(){
 
     read_off(DWM_TX_FCTRL, 0, 4, fctrl);
 
-    char msg[4] = {fctrl[1], fctrl[2], fctrl[3], fctrl[4]};
+    for(int i = 0; i < 4; i++){
+        msg[i] = fctrl[i + 1];
+    } 
+
     send(sock, msg, 4, 0);
+    */
 }
 
 void getDeviceID(){
@@ -514,4 +519,7 @@ void app_main(void)
     ESP_ERROR_CHECK(spi_bus_add_device(1, &devcfg, &spi));
 
     xTaskCreate(tcp_server_task, "tcp_server", 4024, NULL, 5, NULL);
+
+    uint8_t hello[5] = {'h', 'e', 'l', 'l', 'o'};
+    dwm_set_txbuffer(hello);
 }
