@@ -87,6 +87,15 @@ class SocketManager:
                 print('{}'.format((num >> (i * 8)) & 0xFF))
 
             print('Node @ {}: {}'.format(self.ip, self.sock.recv(2)))
+        
+        elif cmd == 'hello':
+            data = self.sock.recv(4)
+
+            num = int.from_bytes(data, 'little')
+            bits = bin(num)
+            print(bits)
+
+            print('Node @ {}: {}'.format(self.ip, self.sock.recv(5)))
             
         else:
             data = self.sock.recv(2048)

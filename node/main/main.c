@@ -27,6 +27,10 @@
 #define PIN_NUM_CS 21
 #define DMA_CHAN 2
 
+#define DWM_TX_BUFFER 0x09
+#define DWM_TX_CTRL 0x0D
+#define DWM_TX_FCTRL 0x08
+
 typedef struct {
     uint8_t cmd[8];
     uint8_t databytes; //No of data in data; bit 7 = delay after set; 0xFF = end of cmds.
@@ -75,6 +79,26 @@ void write_off(uint8_t addr, uint8_t off, uint8_t val){
     spi_device_polling_transmit(spi, &t);
 }
 
+void write_off_data(uint8_t addr, uint8_t off, uint8_t * data){
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+
+    uint8_t len = sizeof(data);
+    uint8_t cmd[2 + len / 8];
+
+    cmd[0] = addr | 0xC0;
+    cmd[1] = off;
+
+    for(int i = 2; i < (2 + len / 8); i++){
+        cmd[i] = data[i - 2];
+    }
+
+    t.length = 16 + len;
+    t.tx_buffer=cmd;
+
+    spi_device_polling_transmit(spi, &t);
+}
+
 void read_off(uint8_t addr, uint8_t off, int expected, uint8_t * result){
     spi_transaction_t t;          
     memset(&t, 0, sizeof(t));  
@@ -98,6 +122,10 @@ void initialize_dwm(){
     write_off(0x24, 0x00, 0x04);
 }
 
+void dwm_set_txbuffer(uint8_t * data){
+    write_off_data(DWM_TX_BUFFER, 0, data);
+}
+
 void send32(uint32_t val){
     char msg[4];
     for(int i = 0; i < 4; i++){
@@ -115,6 +143,16 @@ void flipArray(uint8_t * arr, int s, int e){
         s++;
         e--;
     }
+}
+
+void sayHello(){
+    uint8_t hello[5] = {'h', 'e', 'l', 'l', 'o'};
+    dwm_set_txbuffer(hello);
+    uint8_t fctrl[4];
+    read_off(DWM_TX_FCTRL, 0, 4, fctrl);
+
+    char msg[4] = {fctrl[0], fctrl[1], fctrl[2], fctrl[3]};
+    send(sock, msg, 4, 0);
 }
 
 void getDeviceID(){
@@ -171,6 +209,10 @@ static void do_retransmit()
                     usleep(1000);
                 }
                 
+            }
+
+            if(!strcmp(rx_buffer, "hello")){
+                sayHello();
             }
 
             if(!strcmp(rx_buffer, "temp")){
