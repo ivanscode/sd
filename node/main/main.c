@@ -28,9 +28,13 @@
 #define DMA_CHAN 2
 
 #define DWM_TX_BUFFER 0x09
-#define DWM_TX_CTRL 0x0D
+#define DWM_SYS_CTRL 0x0D
+#define DWM_SYS_STATUS 0x0F
 #define DWM_TX_FCTRL 0x08
 #define DWM_TXBOFFS 22
+#define DWM_TXSTRT 0x02
+#define DWM_TXFRS 7
+
 
 typedef struct {
     uint8_t cmd[8];
@@ -56,18 +60,11 @@ static int s_retry_num = 0;
 
 int sock;
 
-void reset_dwm(){
-    gpio_pad_select_gpio(32);
-    gpio_set_direction(32, GPIO_MODE_OUTPUT_OD);
-    gpio_set_level(32, 0);
+/* DWM1000 Stuff
 
-    usleep(1);
 
-    gpio_pulldown_dis(32);
-    gpio_set_level(32, 1);
 
-    sleep(2);
-}
+ */
 
 void write_off(uint8_t addr, uint8_t off, uint8_t val){
     spi_transaction_t t;
@@ -92,6 +89,7 @@ void write_off_data(uint8_t addr, uint8_t off, uint8_t * data){
 
     for(int i = 2; i < (2 + len); i++){
         cmd[i] = data[i - 2];
+        ESP_LOGI(TAG, "Wrote %X", cmd[i]);
     }
 
     t.length = 16 + len * 8;
@@ -119,12 +117,12 @@ void read_off(uint8_t addr, uint8_t off, int expected, uint8_t * result){
     spi_device_polling_transmit(spi, &t);
 }
 
-void initialize_dwm(){
-    write_off(0x24, 0x00, 0x04);
-}
-
 void dwm_set_txbuffer(uint8_t * data){
     write_off_data(DWM_TX_BUFFER, 0, data);
+}
+
+void dwm_transmit(){
+    write_off(DWM_SYS_CTRL, 0, DWM_TXSTRT);
 }
 
 void send32(uint32_t val){
@@ -135,53 +133,57 @@ void send32(uint32_t val){
     send(sock, msg, 4, 0);
 }
 
-void flipArray(uint8_t * arr, int s, int e){
-    int temp;
-    while(s < e){
-        temp = arr[s];
-        arr[s] = arr[e];
-        arr[e] = temp;
-        s++;
-        e--;
-    }
-}
-
-void sayHello(){
-    uint8_t hello[5] = {'h', 'e', 'l', 'l', 'o'};
-    dwm_set_txbuffer(hello);
-    uint8_t fctrl[5];
-    read_off(DWM_TX_FCTRL, 0, 4, fctrl);
-
-    char msg[4] = {fctrl[1], fctrl[2], fctrl[3], fctrl[4]};
-    send(sock, msg, 4, 0);
-
-    uint8_t len = 5;
-
-    uint8_t config[4] = {len, fctrl[3], fctrl[2] & ~(0x03 << 6), 0};
-
-    write_off_data(DWM_TX_FCTRL, 0, config);
-
-    read_off(DWM_TX_FCTRL, 0, 4, fctrl);
-
-    for(int i = 0; i < 4; i++){
-        msg[i] = fctrl[i + 1];
-    } 
-
-    send(sock, msg, 4, 0);
-}
-
 void getDeviceID(){
     uint8_t id[6];
     read_off(0x00, 0x00, 4, id);
     send32(*(uint32_t*)&id[2]);
 }
 
+void sayHello(){
+    //Set transmit buffer
+    uint8_t hello[5] = {'h', 'e', 'l', 'l', 'o'};
+    dwm_set_txbuffer(hello);
+
+    //Read transmit config
+    uint8_t fctrl[6];
+    read_off(DWM_TX_FCTRL, 0, 4, fctrl);
+
+    //Change config to have frame of message and no offset while keeping the rest as is
+    //Size should be +2 for CRC - check docs
+    uint8_t config[4] = {sizeof(hello) + 2, fctrl[4], fctrl[3] & ~(0x03 >> 6), 0x00};
+    uint32_t conv = *(uint32_t*)config;
+    ESP_LOGI(TAG, "Hello %X", conv);
+    write_off_data(DWM_TX_FCTRL, 0, config);
+
+    read_off(DWM_TX_FCTRL, 0, 4, fctrl);
+
+    for(int i = 0; i < sizeof(fctrl); i++){
+        ESP_LOGI(TAG, "Read %X", fctrl[i]);
+    }
+
+    uint32_t newval = *(uint32_t*)&fctrl[2];
+
+    ESP_LOGI(TAG, "New %X", newval);
+
+    //Transmit!
+    dwm_transmit();
+
+    uint8_t status[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    while(!(status[5] & (0x01 >> DWM_TXFRS))){
+        read_off(DWM_SYS_STATUS, 0, 4, status);
+    }
+
+    ESP_LOGI(TAG, "Sent!");
+}
+
 void radio_get_temperature(){
     write_off(0x28, 0x11, 0x80);
     write_off(0x28, 0x12, 0x0A);
     write_off(0x28, 0x12, 0x0F);
-    write_off(0x2A, 0x00, 0x01);
     write_off(0x2A, 0x00, 0x00);
+    write_off(0x2A, 0x00, 0x01);
+
+    usleep(100);
 
     uint8_t temp[3];
     uint8_t volt[3];
@@ -189,9 +191,17 @@ void radio_get_temperature(){
     read_off(0x2A, 0x03, 1, volt);
     read_off(0x2A, 0x04, 1, temp);
 
+    write_off(0x2A, 0x00, 0x00);
+
     char msg[2] = {volt[2], temp[2]};
     send(sock, msg, 2, 0);
 }
+
+/*
+
+Socket handler
+
+*/
 
 static void do_retransmit()
 {
@@ -241,11 +251,6 @@ static void do_retransmit()
             if(!strcmp(rx_buffer, "measure")){
                 //xTaskCreate(scan_task, "scan_task", 4024, NULL, 5, NULL);
                 scan_task();
-            }
-
-            if(!strcmp(rx_buffer, "reset")){
-                reset_dwm();
-                initialize_dwm();
             }
 
             if(!strcmp(rx_buffer, "collect")){
@@ -506,18 +511,10 @@ void app_main(void)
         .pre_cb=radio_spi_pre_transfer_callback,  //Specify pre-transfer callback to handle D/C line
     };
 
-    //gpio_pad_select_gpio(21);
-    //gpio_set_direction(21, GPIO_MODE_OUTPUT);
-    //gpio_set_level(21, 1);
-
-    reset_dwm();
 
     ESP_ERROR_CHECK(spi_bus_initialize(1, &buscfg, DMA_CHAN));
 
     ESP_ERROR_CHECK(spi_bus_add_device(1, &devcfg, &spi));
 
     xTaskCreate(tcp_server_task, "tcp_server", 4024, NULL, 5, NULL);
-
-    uint8_t hello[5] = {'h', 'e', 'l', 'l', 'o'};
-    dwm_set_txbuffer(hello);
 }
