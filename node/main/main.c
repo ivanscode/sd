@@ -66,49 +66,16 @@ int sock;
 
  */
 
-void write_off(uint8_t addr, uint8_t off, uint8_t val){
-    spi_transaction_t t;
-    memset(&t, 0, sizeof(t));
-
-    uint8_t cmd[3] = {(addr | 0xC0), off, val};
-    t.length=24;
-    t.tx_buffer=cmd;
-
-    spi_device_polling_transmit(spi, &t);
-}
-
-void write_off_data(uint8_t addr, uint8_t off, uint8_t * data){
-    spi_transaction_t t;
-    memset(&t, 0, sizeof(t));
-
-    uint8_t len = sizeof(data);
-    uint8_t cmd[2 + len];
-
-    cmd[0] = addr | 0xC0;
-    cmd[1] = off;
-
-    for(int i = 2; i < (2 + len); i++){
-        cmd[i] = data[i - 2];
-        ESP_LOGI(TAG, "Wrote %X", cmd[i]);
-    }
-
-    t.length = 16 + len * 8;
-    t.tx_buffer=cmd;
-
-    spi_device_polling_transmit(spi, &t);
-}
-
-void read_off(uint8_t addr, uint8_t off, int expected, uint8_t * result){
+void dwm_read(uint8_t addr, uint8_t index, int expected, uint8_t * result){
     spi_transaction_t t;          
     memset(&t, 0, sizeof(t));  
 
     uint8_t cmd[2 + expected];
     cmd[0] = addr | 0x40;
-    cmd[1] = off;
+    cmd[1] = index;
 
-    for(int i = 2; i < (2 + expected); i++){
-        cmd[i] = 0x00;
-    }     
+    for(int i = 2; i < (2 + expected); i++)
+        cmd[i] = 0x00;    
 
     t.length = 16 + expected * 8;                 
     t.tx_buffer = cmd;
@@ -117,12 +84,57 @@ void read_off(uint8_t addr, uint8_t off, int expected, uint8_t * result){
     spi_device_polling_transmit(spi, &t);
 }
 
+void dwm_write(uint8_t addr, uint8_t index, uint8_t * data){
+    uint8_t to_send[2 + sizeof(data)];
+
+    spi_transaction_t t;          
+    memset(&t, 0, sizeof(t));
+
+    to_send[0] = addr | 0xC0;
+    to_send[1] = index;
+
+    for(int i = 2; i < (2 + sizeof(data)); i++)
+        to_send[i] = data[i - 2];
+    
+    t.length = 16 + sizeof(data) * 8;
+    t.tx_buffer = to_send;
+
+    spi_device_polling_transmit(spi, &t);
+}
+
+void dwm_write8reg(uint8_t addr, uint8_t index, uint8_t data){
+    uint8_t value[1] = {data};
+
+    dwm_write(addr, index, value);
+}
+
+void dwm_write32reg(uint8_t addr, uint8_t index, uint32_t data){
+    uint8_t to_send[4] = {data & 0xFF, (data >> 8) & 0xFF, (data >> 16) & 0xFF, (data >> 24) & 0xFF};
+
+    dwm_write(addr, index, to_send);
+}
+
+uint8_t dwm_read8reg(uint8_t addr, uint8_t index){
+    uint8_t result[3];
+    dwm_read(addr, index, 1, result);
+
+    return result[2];
+}
+
+uint32_t dwm_read32reg(uint8_t addr, uint8_t index){
+    uint8_t result[6];
+    dwm_read(addr, index, 4, result);
+
+    return *(uint32_t*)&result[2];
+}
+
 void dwm_set_txbuffer(uint8_t * data){
-    write_off_data(DWM_TX_BUFFER, 0, data);
+    dwm_write(DWM_TX_BUFFER, 0, data);
 }
 
 void dwm_transmit(){
-    write_off(DWM_SYS_CTRL, 0, DWM_TXSTRT);
+    uint8_t data[1] = {DWM_TXSTRT};
+    dwm_write(DWM_SYS_CTRL, 0, data);
 }
 
 void send32(uint32_t val){
@@ -133,67 +145,66 @@ void send32(uint32_t val){
     send(sock, msg, 4, 0);
 }
 
-void getDeviceID(){
-    uint8_t id[6];
-    read_off(0x00, 0x00, 4, id);
-    send32(*(uint32_t*)&id[2]);
+void dwm_getID(){
+    uint32_t id = dwm_read32reg(0, 0);
+    send32(id);
 }
 
 void sayHello(){
     //Set transmit buffer
-    uint8_t hello[5] = {'h', 'e', 'l', 'l', 'o'};
+    uint8_t hello[9] = {0xC5, 0, 'h', 'e', 'l', 'l', 'o', 0, 0};
     dwm_set_txbuffer(hello);
 
     //Read transmit config
-    uint8_t fctrl[6];
-    read_off(DWM_TX_FCTRL, 0, 4, fctrl);
+    uint32_t config = dwm_read32reg(DWM_TX_FCTRL, 0);
+    ESP_LOGI(TAG, "Config before changes %X", config);
 
     //Change config to have frame of message and no offset while keeping the rest as is
-    //Size should be +2 for CRC - check docs
-    uint8_t config[4] = {sizeof(hello) + 2, fctrl[4], fctrl[3] & ~(0x03 >> 6), 0x00};
-    uint32_t conv = *(uint32_t*)config;
-    ESP_LOGI(TAG, "Hello %X", conv);
-    write_off_data(DWM_TX_FCTRL, 0, config);
+    config = (~0xFF & config) | 9; //Size should be +2 for CRC - check docs
+    ESP_LOGI(TAG, "Config before changes %X", config);
+    config |= config & ~(0xFFC00000); //Clear offset
+    config |= (config & ~(0x03 << 16)) | (0x02 << 16); //Clear PRF and set to 64 MHz
+    config |= (config & ~(0x0F << 18)) | (0x02 << 18); //Clear PSR and PE and set to 1024
 
-    read_off(DWM_TX_FCTRL, 0, 4, fctrl);
+    ESP_LOGI(TAG, "Config after changes %X", config);
+    dwm_write32reg(DWM_TX_FCTRL, 0, config);
 
-    for(int i = 0; i < sizeof(fctrl); i++){
-        ESP_LOGI(TAG, "Read %X", fctrl[i]);
-    }
+    config = dwm_read32reg(DWM_TX_FCTRL, 0);
 
-    uint32_t newval = *(uint32_t*)&fctrl[2];
+    ESP_LOGI(TAG, "Confirming %X", config);
 
-    ESP_LOGI(TAG, "New %X", newval);
+    send32(config);
 
     //Transmit!
     dwm_transmit();
 
-    uint8_t status[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    while(!(status[5] & (0x01 >> DWM_TXFRS))){
-        read_off(DWM_SYS_STATUS, 0, 4, status);
-    }
+    while(!(dwm_read32reg(DWM_SYS_STATUS, 0) & (1 << 7))){}
 
     ESP_LOGI(TAG, "Sent!");
+
+    uint32_t clear = dwm_read32reg(DWM_SYS_STATUS, 0);
+    clear &= ~(1 << 7);
+    dwm_write32reg(DWM_SYS_STATUS, 0, clear);
+
+    uint32_t status = dwm_read32reg(DWM_SYS_STATUS, 0);
+    ESP_LOGI(TAG, "Status register %X", status);
 }
 
 void radio_get_temperature(){
-    write_off(0x28, 0x11, 0x80);
-    write_off(0x28, 0x12, 0x0A);
-    write_off(0x28, 0x12, 0x0F);
-    write_off(0x2A, 0x00, 0x00);
-    write_off(0x2A, 0x00, 0x01);
+    dwm_write8reg(0x28, 0x11, 0x80);
+    dwm_write8reg(0x28, 0x12, 0x0A);
+    dwm_write8reg(0x28, 0x12, 0x0F);
+    dwm_write8reg(0x2A, 0x00, 0x00);
+    dwm_write8reg(0x2A, 0x00, 0x01);
 
     usleep(100);
 
-    uint8_t temp[3];
-    uint8_t volt[3];
+    uint8_t temp = dwm_read8reg(0x2A, 0x03);
+    uint8_t volt = dwm_read8reg(0x2A, 0x04);
 
-    read_off(0x2A, 0x03, 1, volt);
-    read_off(0x2A, 0x04, 1, temp);
+    dwm_write8reg(0x2A, 0x00, 0x00);
 
-    write_off(0x2A, 0x00, 0x00);
-
-    char msg[2] = {volt[2], temp[2]};
+    char msg[2] = {volt, temp};
     send(sock, msg, 2, 0);
 }
 
@@ -245,7 +256,7 @@ static void do_retransmit()
             }
 
             if(!strcmp(rx_buffer, "id")){
-                getDeviceID();
+                dwm_getID();
             }
 
             if(!strcmp(rx_buffer, "measure")){
@@ -417,7 +428,7 @@ void radio_spi_pre_transfer_callback(spi_transaction_t *t)
 {
     //int dc=(int)t->user;
     //gpio_set_level(PIN_NUM_DC, dc);
-    ESP_LOGI(TAG, "Transfer on SPI");
+    //ESP_LOGI(TAG, "Transfer on SPI");
 }
 
 void step_one(){
