@@ -30,10 +30,20 @@
 #define DWM_TX_BUFFER 0x09
 #define DWM_SYS_CTRL 0x0D
 #define DWM_SYS_STATUS 0x0F
+#define DWM_RX_FINFO 0x10
+#define DWM_CHAN_CTRL 0x1F
 #define DWM_TX_FCTRL 0x08
 #define DWM_TXBOFFS 22
 #define DWM_TXSTRT 0x02
+#define DWM_RXENAB (1 << 8)
 #define DWM_TXFRS 7
+#define DWM_RXDFR 13
+#define DWM_RXPRF 18
+#define DWM_PCODE 22
+#define DWM_DRX 0x27
+#define DWM_DRX_TUNE2 0x08
+#define DWM_DRX_TUNE1b 0x06
+
 
 
 typedef struct {
@@ -132,11 +142,6 @@ void dwm_set_txbuffer(uint8_t * data){
     dwm_write(DWM_TX_BUFFER, 0, data);
 }
 
-void dwm_transmit(){
-    uint8_t data[1] = {DWM_TXSTRT};
-    dwm_write(DWM_SYS_CTRL, 0, data);
-}
-
 void send32(uint32_t val){
     char msg[4];
     for(int i = 0; i < 4; i++){
@@ -157,37 +162,61 @@ void sayHello(){
 
     //Read transmit config
     uint32_t config = dwm_read32reg(DWM_TX_FCTRL, 0);
-    ESP_LOGI(TAG, "Config before changes %X", config);
+    ESP_LOGI(TAG, "Read config %X", config);
 
     //Change config to have frame of message and no offset while keeping the rest as is
     config = (~0xFF & config) | 9; //Size should be +2 for CRC - check docs
-    ESP_LOGI(TAG, "Config before changes %X", config);
     config |= config & ~(0xFFC00000); //Clear offset
     config |= (config & ~(0x03 << 16)) | (0x02 << 16); //Clear PRF and set to 64 MHz
     config |= (config & ~(0x0F << 18)) | (0x02 << 18); //Clear PSR and PE and set to 1024
 
-    ESP_LOGI(TAG, "Config after changes %X", config);
+    ESP_LOGI(TAG, "New config %X", config);
     dwm_write32reg(DWM_TX_FCTRL, 0, config);
 
     config = dwm_read32reg(DWM_TX_FCTRL, 0);
 
-    ESP_LOGI(TAG, "Confirming %X", config);
+    ESP_LOGI(TAG, "Confirming new config %X", config);
 
     send32(config);
 
     //Transmit!
-    dwm_transmit();
+    dwm_write8reg(DWM_SYS_CTRL, 0, DWM_TXSTRT);
+    ESP_LOGI(TAG, "Transmitting and waiting for confirmation");
 
-    while(!(dwm_read32reg(DWM_SYS_STATUS, 0) & (1 << 7))){}
+    while(!(dwm_read32reg(DWM_SYS_STATUS, 0) & (1 << DWM_TXFRS))){}
 
     ESP_LOGI(TAG, "Sent!");
 
     uint32_t clear = dwm_read32reg(DWM_SYS_STATUS, 0);
-    clear &= ~(1 << 7);
+    clear &= ~(1 << DWM_TXFRS);
     dwm_write32reg(DWM_SYS_STATUS, 0, clear);
+}
 
-    uint32_t status = dwm_read32reg(DWM_SYS_STATUS, 0);
-    ESP_LOGI(TAG, "Status register %X", status);
+void dwm_rx(){
+    dwm_write8reg(DWM_SYS_CTRL, 0, DWM_RXENAB);
+
+    while(!(dwm_read32reg(DWM_SYS_STATUS, 0) & (1 << DWM_RXDFR))){}
+
+    uint8_t rx_len = uint8_t(dwm_read32reg(DWM_RX_FINFO, 0) & 0x7F);
+
+    ESP_LOGI(TAG, "Received %d bytes of data", rx_len);
+}
+
+void dwm_configure(){
+    //Set channel PRF to 64MHz and preamble code to 9
+    uint32_t chan_ctrl = dwm_read32reg(DWM_CHAN_CTRL, 0);
+    chan_ctrl &= ~(0x03 << DWM_RXPRF);
+    chan_ctrl &= ~(0xFFFF << DWM_PCODE);
+    chan_ctrl |= (0x02 << DWM_RXPRF);
+    chan_ctrl |= (0x09 << DWM_PCODE);
+    chan_ctrl |= (0x09 << (DWM_PCODE + 5));
+    dwm_write32reg(DWM_CHAN_CTRL, 0, chan_ctrl);
+
+    //Set PAC size
+    dwm_write32reg(DWM_DRX, DWM_DRX_TUNE2, 0x353B015E);
+
+    //Set BR to 110kbps
+    dwm_write8reg(DWM_DRX, DWM_DRX_TUNE1b, 0x64);
 }
 
 void radio_get_temperature(){
@@ -526,6 +555,8 @@ void app_main(void)
     ESP_ERROR_CHECK(spi_bus_initialize(1, &buscfg, DMA_CHAN));
 
     ESP_ERROR_CHECK(spi_bus_add_device(1, &devcfg, &spi));
+
+    dwm_configure();
 
     xTaskCreate(tcp_server_task, "tcp_server", 4024, NULL, 5, NULL);
 }
