@@ -28,6 +28,7 @@
 #define DMA_CHAN 2
 
 #define DWM_TX_BUFFER 0x09
+#define DWM_SYS_CFG 0x04
 #define DWM_SYS_CTRL 0x0D
 #define DWM_SYS_STATUS 0x0F
 #define DWM_RX_FINFO 0x10
@@ -44,6 +45,13 @@
 #define DWM_DRX_TUNE2 0x08
 #define DWM_DRX_TUNE1b 0x06
 #define DWM_DRX_TUNE1a 0x04
+#define DWM_SYS_STATUS_RXPHE 0x1000
+#define DWM_SYS_STATUS_RXFCE 0x8000
+#define DWM_SYS_STATUS_RXRFSL 0x10000
+#define DWM_SYS_STATUS_RXSFDTO 0x4000000
+#define DWM_SYS_STATUS_AFFREJ 0x20000000
+#define DWM_SYS_STATUS_LDEERR 0x40000
+#define DWM_SYS_STATUS_ALL_RX_ERR  (DWM_SYS_STATUS_RXPHE | DWM_SYS_STATUS_RXFCE | DWM_SYS_STATUS_RXRFSL | DWM_SYS_STATUS_RXSFDTO | DWM_SYS_STATUS_AFFREJ | DWM_SYS_STATUS_LDEERR)
 
 
 
@@ -207,16 +215,32 @@ void sayHello(){
 void dwm_rx(){
     dwm_write32reg(DWM_SYS_CTRL, 0, 0x100);
 
-    while(!(dwm_read32reg(DWM_SYS_STATUS, 0) & (1 << 13))){} 
+    while(!(dwm_read32reg(DWM_SYS_STATUS, 0) & (DWM_SYS_STATUS_ALL_RX_ERR | 1 << 13))){}
 
     ESP_LOGI(TAG, "System status is %X", dwm_read32reg(DWM_SYS_STATUS, 0));
 
     uint8_t rx_len = (uint8_t)(dwm_read32reg(DWM_RX_FINFO, 0) & 0x7F);
+    ESP_LOGI(TAG, "FINFO is %X", dwm_read32reg(DWM_RX_FINFO, 0));
 
     ESP_LOGI(TAG, "Received %d bytes of data", rx_len);
+
+    uint8_t data[rx_len];
+    dwm_read(0x11, 0, rx_len, data);
+    char result[rx_len + 1];
+    for(int i = 0; i < rx_len; i++){
+        result[i] = data[i];
+        ESP_LOGI(TAG, "Data received: %d %c", data[i], data[i]);
+    }
 }
 
 void dwm_configure(){
+    uint32_t sys_cfg = dwm_read32reg(DWM_SYS_CFG, 0);
+    ESP_LOGI(TAG, "SYS_CFG configured to %X", sys_cfg);
+    sys_cfg |= (1 << 22);
+    sys_cfg &= ~(0x03 << 16);
+    dwm_write32reg(DWM_SYS_CFG, 0, sys_cfg);
+    ESP_LOGI(TAG, "New SYS_CFG configured to %X", dwm_read32reg(DWM_SYS_CFG, 0));
+
     //Set channel PRF to 64MHz and preamble code to 9
     uint32_t chan_ctrl = dwm_read32reg(DWM_CHAN_CTRL, 0);
     chan_ctrl &= ~(0x03 << DWM_RXPRF);
@@ -224,9 +248,18 @@ void dwm_configure(){
     chan_ctrl |= (0x02 << DWM_RXPRF);
     chan_ctrl |= (0x09 << DWM_PCODE);
     chan_ctrl |= (0x09 << (DWM_PCODE + 5));
+    chan_ctrl |= (1 << 17);
+    chan_ctrl |= (0x03 << 20);
     dwm_write32reg(DWM_CHAN_CTRL, 0, chan_ctrl);
 
     ESP_LOGI(TAG, "Channel CTRL configured to %X", dwm_read32reg(DWM_CHAN_CTRL, 0));
+
+    //Tune AGC
+    dwm_write32reg(0x23, 0x0C, 0x2502A907);
+    dwm_write16reg(0x23, 0x02, 0x889B);
+
+    //Set SFD config for RX tune 0b
+    dwm_write16reg(DWM_DRX, 0x02, 0x0016);
 
     //Set PAC size
     dwm_write32reg(DWM_DRX, DWM_DRX_TUNE2, 0x353B015E);
