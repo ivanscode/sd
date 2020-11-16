@@ -34,6 +34,10 @@
 #define DWM_RX_FINFO 0x10
 #define DWM_CHAN_CTRL 0x1F
 #define DWM_TX_FCTRL 0x08
+#define DWM_TX_FCTRL_BR 13
+#define DWM_TX_FCTRL_PRF 16
+#define DWM_TX_FCTRL_PSR 18
+#define DWM_TX_FCTRL_PE 20
 #define DWM_TXBOFFS 22
 #define DWM_TXSTRT 0x02
 #define DWM_RXENAB 8
@@ -45,6 +49,8 @@
 #define DWM_DRX_TUNE2 0x08
 #define DWM_DRX_TUNE1b 0x06
 #define DWM_DRX_TUNE1a 0x04
+#define DWM_DRX_TUNE0b 0x02
+#define DWM_DRX_PRETOC 0x24
 #define DWM_SYS_STATUS_RXPHE 0x1000
 #define DWM_SYS_STATUS_RXFCE 0x8000
 #define DWM_SYS_STATUS_RXRFSL 0x10000
@@ -52,8 +58,23 @@
 #define DWM_SYS_STATUS_AFFREJ 0x20000000
 #define DWM_SYS_STATUS_LDEERR 0x40000
 #define DWM_SYS_STATUS_ALL_RX_ERR  (DWM_SYS_STATUS_RXPHE | DWM_SYS_STATUS_RXFCE | DWM_SYS_STATUS_RXRFSL | DWM_SYS_STATUS_RXSFDTO | DWM_SYS_STATUS_AFFREJ | DWM_SYS_STATUS_LDEERR)
+#define DWM_AGC 0x23
+#define DWM_AGC_TUNE1 0x04
+#define DWM_AGC_TUNE2 0x0C
+#define DWM_AGC_TUNE1_64PRF 0x889B
+#define DWM_AGC_TUNE2_CONST 0x2502A907
+#define DWM_LDEIF 0x2E
+#define DWM_TXANTD 0x18
+#define DWM_LDEIF_RXANTD 0x1804
+#define DWM_ACK_RESP_T 0x1A
+#define DWM_RX_FWTO 0x0C
 
-
+#define TX_ANT_DLY 16436
+#define RX_ANT_DLY 16436
+#define SPEED_OF_LIGHT 299702547
+static uint8_t poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x21, 0, 0};
+static uint8_t resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'V', 'E', 'W', 'A', 0x10, 0x02, 0, 0, 0, 0};
+static uint8_t final_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'W', 'A', 'V', 'E', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 typedef struct {
     uint8_t cmd[8];
@@ -85,7 +106,7 @@ int sock;
 
  */
 
-void dwm_read(uint8_t addr, uint8_t index, int expected, uint8_t * result){
+void dwm_read(uint8_t addr, uint16_t index, int expected, uint8_t * result){
     spi_transaction_t t;          
     memset(&t, 0, sizeof(t));  
 
@@ -103,7 +124,7 @@ void dwm_read(uint8_t addr, uint8_t index, int expected, uint8_t * result){
     spi_device_polling_transmit(spi, &t);
 }
 
-void dwm_write(uint8_t addr, uint8_t index, uint8_t * data, uint8_t len){
+void dwm_write(uint8_t addr, uint16_t index, uint8_t * data, uint8_t len){
     uint8_t to_send[2 + len];
 
     spi_transaction_t t;          
@@ -177,6 +198,24 @@ void dwm_getID(){
     send32(id);
 }
 
+void dwm_setrxaftertxdelay(uint32_t delay){
+    uint32_t val = dwm_read32reg(DWM_ACK_RESP_T, 0);
+
+    val &= ~(0xFFFFF) ; // Clear 20 bit timer
+    val |= (delay & 0xFFFFF);
+
+    dwm_write32reg(DWM_ACK_RESP_T, 0, val);
+}
+
+void dwm_setrxtimeout(uint16_t time){
+    uint8_t temp = dwm_read8reg(DWM_SYS_CFG, 3);
+
+    dwm_write16reg(DWM_RX_FWTO, 0, time);
+    temp |= 0x10; 
+
+    dwm_write8reg(DWM_SYS_CFG, 3, temp); // Write at offset 3 to write the upper byte only
+}
+
 void sayHello(){
     //Set transmit buffer
     uint8_t hello[9] = {0xC5, 0, 'h', 'e', 'l', 'l', 'o', 0, 0};
@@ -220,20 +259,32 @@ void dwm_rx(){
     ESP_LOGI(TAG, "System status is %X", dwm_read32reg(DWM_SYS_STATUS, 0));
 
     uint8_t rx_len = (uint8_t)(dwm_read32reg(DWM_RX_FINFO, 0) & 0x7F);
-    ESP_LOGI(TAG, "FINFO is %X", dwm_read32reg(DWM_RX_FINFO, 0));
 
     ESP_LOGI(TAG, "Received %d bytes of data", rx_len);
 
     uint8_t data[rx_len];
     dwm_read(0x11, 0, rx_len, data);
-    char result[rx_len + 1];
+
     for(int i = 0; i < rx_len; i++){
-        result[i] = data[i];
         ESP_LOGI(TAG, "Data received: %d %c", data[i], data[i]);
     }
 }
 
 void dwm_configure(){
+    //Set antenna delays
+    dwm_write16reg(DWM_LDEIF, DWM_LDEIF_RXANTD, RX_ANT_DLY);
+    dwm_write16reg(DWM_TXANTD, 0, TX_ANT_DLY);
+
+    //Set response delay
+    dwm_setrxaftertxdelay(150);
+
+    //Set response timeout
+    dwm_setrxtimeout(2700);
+
+    //Set preamble detect timeout
+    dwm_write16reg(DWM_DRX, DWM_DRX_PRETOC, 8);
+
+
     uint32_t sys_cfg = dwm_read32reg(DWM_SYS_CFG, 0);
     ESP_LOGI(TAG, "SYS_CFG configured to %X", sys_cfg);
     sys_cfg |= (1 << 22);
@@ -243,47 +294,36 @@ void dwm_configure(){
 
     //Set channel PRF to 64MHz and preamble code to 9
     uint32_t chan_ctrl = dwm_read32reg(DWM_CHAN_CTRL, 0);
-    chan_ctrl &= ~(0x03 << DWM_RXPRF);
-    chan_ctrl &= ~(0xFFE00000);
-    chan_ctrl |= (0x02 << DWM_RXPRF);
-    chan_ctrl |= (0x09 << DWM_PCODE);
-    chan_ctrl |= (0x09 << (DWM_PCODE + 5));
-    chan_ctrl |= (1 << 17);
-    chan_ctrl |= (0x03 << 20);
+    chan_ctrl &= ~(0x03 << DWM_RXPRF); //Clear PRF settings
+    chan_ctrl &= ~(0xFFE00000); //Clear preamble codes
+    chan_ctrl |= (0x02 << DWM_RXPRF); //Set PRF to 64 MHz
+    chan_ctrl |= (0x09 << DWM_PCODE | 0x09 << (DWM_PCODE + 5));  //Preamble code = 9 on TX and RX
+    chan_ctrl |= (1 << 17); //Enable non-standard SFD
+    chan_ctrl |= (0x03 << 20); //Enable non-standard SFD on TX and RX
     dwm_write32reg(DWM_CHAN_CTRL, 0, chan_ctrl);
 
     ESP_LOGI(TAG, "Channel CTRL configured to %X", dwm_read32reg(DWM_CHAN_CTRL, 0));
 
     //Tune AGC
-    dwm_write32reg(0x23, 0x0C, 0x2502A907);
-    dwm_write16reg(0x23, 0x02, 0x889B);
+    dwm_write16reg(DWM_AGC, DWM_AGC_TUNE1, DWM_AGC_TUNE1_64PRF);
+    dwm_write32reg(DWM_AGC, DWM_AGC_TUNE2, DWM_AGC_TUNE2_CONST);
 
     //Set SFD config for RX tune 0b
-    dwm_write16reg(DWM_DRX, 0x02, 0x0016);
+    dwm_write16reg(DWM_DRX, DWM_DRX_TUNE0b, 0x0016);
 
     //Set PAC size
     dwm_write32reg(DWM_DRX, DWM_DRX_TUNE2, 0x353B015E);
-    ESP_LOGI(TAG, "PAC size set to %X", dwm_read32reg(DWM_DRX, DWM_DRX_TUNE2));
 
     //Set BR to 110kbps
-    ESP_LOGI(TAG, "Tune 1b set to %X", dwm_read16reg(DWM_DRX, DWM_DRX_TUNE1b));
     dwm_write16reg(DWM_DRX, DWM_DRX_TUNE1b, 0x0064);
 
     //Set tune to 64 MHz PRF
     dwm_write16reg(DWM_DRX, DWM_DRX_TUNE1a, 0x008D);
 
-
-    ESP_LOGI(TAG, "Bitrate set to %X", dwm_read16reg(DWM_DRX, DWM_DRX_TUNE1b));
-    ESP_LOGI(TAG, "Tune 1a %X", dwm_read16reg(DWM_DRX, DWM_DRX_TUNE1a));
-
+    //Configure TX frame control
     uint32_t fctrl = dwm_read32reg(DWM_TX_FCTRL, 0);
-    fctrl &= ~(0x03 << 13);
-    fctrl &= ~(0x03 << 16);
-    fctrl &= ~(0x03 << 18);
-    fctrl &= ~(0x03 << 20);
-
-    fctrl |= (0x02 << 16);
-    fctrl |= (0x02 << 18);
+    fctrl &= ~(0x03 << DWM_TX_FCTRL_BR | 0x03 << DWM_TX_FCTRL_PRF | 0x03 << DWM_TX_FCTRL_PSR | 0x03 << DWM_TX_FCTRL_PE);
+    fctrl |= (0x02 << DWM_TX_FCTRL_PRF | 0x02 << DWM_TX_FCTRL_PSR); //PRF to 64 MHz and PSR to 1024 (bits to 10 each)
     dwm_write32reg(DWM_TX_FCTRL, 0, fctrl);
 
     ESP_LOGI(TAG, "New FCTRL config is %X", dwm_read32reg(DWM_TX_FCTRL, 0));
