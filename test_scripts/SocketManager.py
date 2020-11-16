@@ -96,6 +96,9 @@ class SocketManager:
             print(bits)
 
             print('Node @ {}: {}'.format(self.ip, self.sock.recv(5)))
+
+        elif cmd == 'init' or cmd == 'range':
+            return
             
         else:
             data = self.sock.recv(2048)
