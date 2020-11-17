@@ -21,10 +21,10 @@
 #define MAXIMUM_RETRY  4
 #define PORT 25565
 
-#define PIN_NUM_MISO 19 //PCB: 27 //DEV: 19
-#define PIN_NUM_MOSI 18 //14 //18
-#define PIN_NUM_CLK 5 //26 //5
-#define PIN_NUM_CS 21 //12 //21
+#define PIN_NUM_MISO 27 //PCB: 27 //DEV: 19
+#define PIN_NUM_MOSI 14 //14 //18
+#define PIN_NUM_CLK 26//26 //5
+#define PIN_NUM_CS 12 //12 //21
 #define DMA_CHAN 2
 
 #define DWM_TX_BUFFER 0x09
@@ -67,6 +67,7 @@
 #define DWM_LDEIF 0x2E
 #define DWM_TXANTD 0x18
 #define DWM_LDEIF_RXANTD 0x1804
+#define DWM_LDEIF_CFG2 0x1806
 #define DWM_LDEIF_REPC 0x2804
 #define DWM_ACK_RESP_T 0x1A
 #define DWM_RX_FWTO 0x0C
@@ -88,6 +89,20 @@
 #define DWM_TXTIME 0x17
 #define DWM_DXTIME 0x0A
 #define DWM_TIME_UNITS (1.0/499.2e6/128.0)
+#define DWM_TC 0x2A
+#define DWM_TC_PGDELAY 0x0B
+#define DWM_AON 0x2C
+
+// Defines for enable_clocks function
+#define FORCE_SYS_XTI  0
+#define ENABLE_ALL_SEQ 1
+#define FORCE_SYS_PLL  2
+#define READ_ACC_ON    7
+#define READ_ACC_OFF   8
+#define FORCE_OTP_ON   11
+#define FORCE_OTP_OFF  12
+#define FORCE_TX_PLL   13
+#define FORCE_LDE      14
 
 
 #define TX_ANT_DLY 16436
@@ -293,12 +308,130 @@ void get_ts(uint8_t *arr, uint32_t *ts){
     }
 }
 
+void dwm_enableclocks(int clocks){
+    uint8_t r[4];
+    uint8_t reg[2];
+
+    dwm_read(DWM_PMSC, 0, 2, r);
+    reg[0] = r[2];
+    reg[1] = r[3];
+    switch(clocks){
+        case ENABLE_ALL_SEQ:{
+            reg[0] = 0x00 ;
+            reg[1] = reg[1] & 0xfe;
+        }
+        break;
+        case FORCE_SYS_XTI:{
+            // System and RX
+            reg[0] = 0x01 | (reg[0] & 0xfc);
+        }
+        break;
+        case FORCE_SYS_PLL:{
+            // System
+            reg[0] = 0x02 | (reg[0] & 0xfc);
+        }
+        break;
+        case READ_ACC_ON:{
+            reg[0] = 0x48 | (reg[0] & 0xb3);
+            reg[1] = 0x80 | reg[1];
+        }
+        break;
+        case READ_ACC_OFF:{
+            reg[0] = reg[0] & 0xb3;
+            reg[1] = 0x7f & reg[1];
+        }
+        break;
+        case FORCE_OTP_ON:{
+            reg[1] = 0x02 | reg[1];
+        }
+        break;
+        case FORCE_OTP_OFF:{
+            reg[1] = reg[1] & 0xfd;
+        }
+        break;
+        case FORCE_TX_PLL:{
+            reg[0] = 0x20 | (reg[0] & 0xcf);
+        }
+        break;
+        case FORCE_LDE:{
+            reg[0] = 0x01;
+            reg[1] = 0x03;
+        }
+        break;
+        default:
+        break;
+    }
+
+
+    // Need to write lower byte separately before setting the higher byte(s)
+    dwm_write8reg(DWM_PMSC, 0, reg[0]);
+    dwm_write8reg(DWM_PMSC, 0x1, reg[1]);
+
+}
+
+uint32_t dwm_otpread(uint16_t address){
+    uint32_t result;
+
+    // Write the address
+    dwm_write16reg(0x2D, 0x04, address);
+
+    // Perform OTP Read - Manual read mode has to be set
+    dwm_write8reg(0x2D, 0x06, 0x03);
+    dwm_write8reg(0x2D, 0x06, 0x00); // OTPREAD is self clearing but OTPRDEN is not
+
+    // Read read data, available 40ns after rising edge of OTP_READ
+    result = dwm_read32reg(0x2D, 0x0A);
+
+    // Return the 32bit of read data
+    return result;
+}
+
 void dwm_rxreset(){
     // Set RX reset
     dwm_write8reg(DWM_PMSC, DWM_PMSC_SOFT, 0xE0);
 
     // Clear RX reset
     dwm_write8reg(DWM_PMSC, DWM_PMSC_SOFT, 0xF0);
+}
+
+void dwm_reset(){
+	// Enable GPIO used for DW1000 reset
+    gpio_pad_select_gpio(25);
+    gpio_set_direction(25, GPIO_MODE_OUTPUT);
+    gpio_set_level(25, 0);
+
+	//put the pin back to tri-state ... as input
+	gpio_set_direction(25, GPIO_MODE_INPUT);
+
+    sleep_ms(2);
+}
+
+void dwm_softreset(){
+    //Disable sequencing
+    dwm_enableclocks(FORCE_SYS_XTI); // Set system clock to XTI
+    dwm_write16reg(DWM_PMSC, 0x04, 0); // Disable PMSC ctrl of RF and RX clk blocks
+
+    // Clear any AON auto download bits (as reset will trigger AON download)
+    dwm_write16reg(DWM_AON, 0, 0x00);
+    // Clear the wake-up configuration
+    dwm_write16reg(DWM_AON, 0x06, 0x00);
+    // Upload the new configuration
+    dwm_write8reg(DWM_AON, 0x02, 0x00); // Clear the register
+    dwm_write8reg(DWM_AON, 0x02, 0x02);
+
+    // Reset HIF, TX, RX and PMSC
+    dwt_write8bitoffsetreg(DWM_PMSC, 0x03, 0);
+
+    // DW1000 needs a 10us sleep to let clk PLL lock after reset - the PLL will automatically lock after the reset
+    // Could also have polled the PLL lock flag, but then the SPI needs to be < 3MHz !! So a simple delay is easier
+    usleep(200);
+
+    // Clear reset
+    dwt_write8bitoffsetreg(DWM_PMSC, 0x03, 0xF0);
+}
+
+void dwm_initialize(){
+	dwm_softreset();
 }
 
 void sayHello(){
@@ -539,7 +672,27 @@ void dwm_configure(){
 
     //Set SFD length
     dwm_write8reg(DWM_USR_SFD, 0, 64);
+
+    //LDE tune
+    dwm_write16reg(DWM_LDEIF, DWM_LDEIF_CFG2, 0x0607);
     
+    //TC channel 5
+    dwm_write8reg(DWM_TC, DWM_TC_PGDELAY, 0xC0);
+
+    //LDELOAD
+    dwm_write16reg(DWM_PMSC, 0, 0x0301);
+    dwm_write16reg(DWM_PMSC, 0x06, 0x8000);
+    usleep(200);
+    dwm_write16reg(DWM_PMSC, 0, 0x0200);
+
+    //Check if tuning microcode is loaded
+    uint32_t ldotune = dwm_otpread(0x04);
+    if((ldotune & 0xFF) != 0){
+        ESP_LOGI(TAG, "Tune found");
+        dwm_write8reg(0x2D, 0x12, 0x02);
+    }else{
+        ESP_LOGI(TAG, "No tune found");
+    }
 
     uint32_t sys_cfg = dwm_read32reg(DWM_SYS_CFG, 0);
     ESP_LOGI(TAG, "SYS_CFG configured to %X", sys_cfg);
@@ -926,7 +1079,7 @@ void app_main(void)
     };
 
     spi_device_interface_config_t devcfg={
-        .clock_speed_hz=10*1000,           //Clock out at 10 MHz
+        .clock_speed_hz=10*1000,           //Clock out at 0.01 MHz
         .mode=0,                                //SPI mode 0
         .spics_io_num = PIN_NUM_CS,              //CS pin
         .queue_size = 7,                          //We want to be able to queue 7 transactions at a time
@@ -938,8 +1091,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(spi_bus_add_device(1, &devcfg, &spi));
 
-    dwm_write16reg(DWM_DRX, DWM_DRX_TUNE1b, 0x0064);
-    dwm_read16reg(DWM_DRX, DWM_DRX_TUNE1b);
+    dwm_reset();
 
     dwm_configure();
 
