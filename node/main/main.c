@@ -403,7 +403,7 @@ void dwm_reset(){
 	//put the pin back to tri-state ... as input
 	gpio_set_direction(25, GPIO_MODE_INPUT);
 
-    sleep_ms(2);
+    usleep(20000);
 }
 
 void dwm_softreset(){
@@ -420,14 +420,17 @@ void dwm_softreset(){
     dwm_write8reg(DWM_AON, 0x02, 0x02);
 
     // Reset HIF, TX, RX and PMSC
-    dwt_write8bitoffsetreg(DWM_PMSC, 0x03, 0);
+    dwm_write8reg(DWM_PMSC, 0x03, 0);
 
     // DW1000 needs a 10us sleep to let clk PLL lock after reset - the PLL will automatically lock after the reset
     // Could also have polled the PLL lock flag, but then the SPI needs to be < 3MHz !! So a simple delay is easier
     usleep(200);
 
     // Clear reset
-    dwt_write8bitoffsetreg(DWM_PMSC, 0x03, 0xF0);
+    dwm_write8reg(DWM_PMSC, 0x03, 0xF0);
+
+    // Set system clock to XTI
+    dwm_enableclocks(FORCE_SYS_XTI); 
 }
 
 void dwm_initialize(){
