@@ -26,6 +26,7 @@ def process():
     device1 = sm.SocketManager(IP)
     device2 = sm.SocketManager('192.168.1.4')
     device1.send('range')
+    time.sleep(1)
     device2.send('init')
     
 

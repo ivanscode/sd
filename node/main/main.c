@@ -21,10 +21,10 @@
 #define MAXIMUM_RETRY  4
 #define PORT 25565
 
-#define PIN_NUM_MISO 27 //PCB: 27 //DEV: 19
-#define PIN_NUM_MOSI 14 //14 //18
-#define PIN_NUM_CLK 26//26 //5
-#define PIN_NUM_CS 12 //12 //21
+#define PIN_NUM_MISO 19 //PCB: 27 //DEV: 19
+#define PIN_NUM_MOSI 18 //14 //18
+#define PIN_NUM_CLK 5 //26 //5
+#define PIN_NUM_CS 21 //12 //21
 #define DMA_CHAN 2
 
 #define DWM_TX_BUFFER 0x09
@@ -92,6 +92,7 @@
 #define DWM_TC 0x2A
 #define DWM_TC_PGDELAY 0x0B
 #define DWM_AON 0x2C
+#define DWM_EXT_SYNC 0x24
 
 // Defines for enable_clocks function
 #define FORCE_SYS_XTI  0
@@ -435,6 +436,42 @@ void dwm_softreset(){
 
 void dwm_initialize(){
 	dwm_softreset();
+
+    dwm_enableclocks(FORCE_SYS_XTI); 
+
+    // Configure the CPLL lock detect
+    dwm_write8reg(DWM_EXT_SYNC, 0, 0x04);
+
+    //Check if tuning microcode is loaded
+    uint32_t ldotune = dwm_otpread(0x04);
+    if((ldotune & 0xFF) != 0){
+        ESP_LOGI(TAG, "Tune found");
+        dwm_write8reg(0x2D, 0x12, 0x02);
+    }else{
+        ESP_LOGI(TAG, "No tune found");
+    }
+
+    uint8_t xtal = dwm_otpread(0x1E) & 0x1F;
+
+    if(!xtal){
+        xtal = 0x10;
+    }
+
+    dwm_write8reg(DWM_FSCTRL, 0x0E, (3 << 5) | (xtal & 0x1F));
+
+
+    dwm_enableclocks(FORCE_LDE);
+
+    // Kick off the LDE load
+    dwm_write16reg(0x2D, 0x06, 0x8000); // Set load LDE kick bit
+
+    usleep(200); // Allow time for code to upload (should take up to 120 us)
+
+    // Default clocks (ENABLE_ALL_SEQ)
+    dwm_enableclocks(ENABLE_ALL_SEQ); // Enable clocks for sequencing
+
+    // The 3 bits in AON CFG1 register must be cleared to ensure proper operation of the DW1000 in DEEPSLEEP mode.
+    dwm_write8reg(DWM_AON, 0x0A, 0x00);
 }
 
 void sayHello(){
@@ -633,9 +670,7 @@ void range_init(){
 void dwm_rx(){
     dwm_write32reg(DWM_SYS_CTRL, 0, 0x100);
 
-    //while(!(dwm_read32reg(DWM_SYS_STATUS, 0) & (DWM_SYS_STATUS_ALL_RX_ERR | 1 << 13))){}
-
-    usleep(10000);
+    while(!(dwm_read32reg(DWM_SYS_STATUS, 0) & (DWM_SYS_STATUS_ALL_RX_ERR | 1 << 13))){}
 
     ESP_LOGI(TAG, "System status is %X", dwm_read32reg(DWM_SYS_STATUS, 0));
 
@@ -687,15 +722,6 @@ void dwm_configure(){
     dwm_write16reg(DWM_PMSC, 0x06, 0x8000);
     usleep(200);
     dwm_write16reg(DWM_PMSC, 0, 0x0200);
-
-    //Check if tuning microcode is loaded
-    uint32_t ldotune = dwm_otpread(0x04);
-    if((ldotune & 0xFF) != 0){
-        ESP_LOGI(TAG, "Tune found");
-        dwm_write8reg(0x2D, 0x12, 0x02);
-    }else{
-        ESP_LOGI(TAG, "No tune found");
-    }
 
     uint32_t sys_cfg = dwm_read32reg(DWM_SYS_CFG, 0);
     ESP_LOGI(TAG, "SYS_CFG configured to %X", sys_cfg);
@@ -1095,6 +1121,8 @@ void app_main(void)
     ESP_ERROR_CHECK(spi_bus_add_device(1, &devcfg, &spi));
 
     dwm_reset();
+
+    dwm_initialize();
 
     dwm_configure();
 
