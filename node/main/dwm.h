@@ -53,6 +53,11 @@ SYS_MASK System event mask register
 SYS_STATUS System event status register
 */
 #define SYS_STATUS 0x0F
+#define SYS_STATUS_TXFRB 0x10
+#define SYS_STATUS_TXPRS 0x20
+#define SYS_STATUS_TXPHS 0x40
+#define SYS_STATUS_TXFRS 0x80
+#define SYS_STATUS_ALL_TX (SYS_STATUS_TXFRB | SYS_STATUS_TXPRS | SYS_STATUS_TXPHS | SYS_STATUS_TXFRS)
 #define SYS_STATUS_RXDFR 0x2000
 #define SYS_STATUS_RXFCS 0x4000
 #define SYS_STATUS_RXPHE 0x1000
@@ -192,6 +197,7 @@ OTP_IF one time programmable memory interface
 #define OTP_ADDR 0x04
 #define OTP_CTRL 0x06
 #define OTP_RDAT 0x0A
+#define OTP_SF 0x12
 /*
 LDE_IF leading edge detection interface
 */
@@ -213,14 +219,8 @@ PMSC power management system control block
 #define PMSC_LEDC 0x28
 
 // Defines for enable_clocks function
-#define FORCE_SYS_XTI  0
-#define ENABLE_ALL_SEQ 1
-#define FORCE_SYS_PLL  2
-#define READ_ACC_ON    7
-#define READ_ACC_OFF   8
-#define FORCE_OTP_ON   11
-#define FORCE_OTP_OFF  12
-#define FORCE_TX_PLL   13
-#define FORCE_LDE      14
+#define SYS_XTI  0
+#define AUTO_CLK 1
+#define SYS_PLL  2
 
 #define TIME_UNITS (1.0/499.2e6/128.0)

@@ -151,7 +151,7 @@ uint32_t dwm_read24reg(uint8_t addr, uint16_t index){
     dwm_read(addr, index, 3, result);
 
     if(index > 127)
-        return *(uint16_t*)&result[3];
+        return *(uint32_t*)&result[3];
     return *(uint32_t*)&result[2];
 }
 
@@ -160,7 +160,7 @@ uint32_t dwm_read32reg(uint8_t addr, uint16_t index){
     dwm_read(addr, index, 4, result);
 
     if(index > 127)
-        return *(uint16_t*)&result[3];
+        return *(uint32_t*)&result[3];
     return *(uint32_t*)&result[2];
 }
 
@@ -242,69 +242,38 @@ void get_ts(uint8_t *arr, uint32_t *ts){
         *ts += arr[i] << (i * 8);
     }
 }
-/*
 
 void dwm_enableclocks(int clocks){
     uint8_t reg[2];
 
-    uint16_t re = dwm_read16reg(DWM_PMSC, 0);
+    uint16_t re = dwm_read16reg(PMSC, 0);
     reg[0] = (uint8_t)re;
     reg[1] = (uint8_t)(re >> 8);
     switch(clocks){
-        case ENABLE_ALL_SEQ:{
+        case AUTO_CLK:{
             reg[0] = 0x00 ;
-            reg[1] = reg[1] & 0xfe;
+            reg[1] &= 0xFE;
         }
         break;
-        case FORCE_SYS_XTI:{
+        case SYS_XTI:{
             // System and RX
-            reg[0] = 0x01 | (reg[0] & 0xfc);
+            reg[0] = 0x01 | (reg[0] & 0xFC);
         }
         break;
-        case FORCE_SYS_PLL:{
+        case SYS_PLL:{
             // System
-            reg[0] = 0x02 | (reg[0] & 0xfc);
+            reg[0] = 0x02 | (reg[0] & 0xFC);
         }
-        break;
-        case READ_ACC_ON:{
-            reg[0] = 0x48 | (reg[0] & 0xb3);
-            reg[1] = 0x80 | reg[1];
-        }
-        break;
-        case READ_ACC_OFF:{
-            reg[0] = reg[0] & 0xb3;
-            reg[1] = 0x7f & reg[1];
-        }
-        break;
-        case FORCE_OTP_ON:{
-            reg[1] = 0x02 | reg[1];
-        }
-        break;
-        case FORCE_OTP_OFF:{
-            reg[1] = reg[1] & 0xfd;
-        }
-        break;
-        case FORCE_TX_PLL:{
-            reg[0] = 0x20 | (reg[0] & 0xcf);
-        }
-        break;
-        case FORCE_LDE:{
-            reg[0] = 0x01;
-            reg[1] = 0x03;
-        }
-        break;
-        default:
         break;
     }
 
 
     // Need to write lower byte separately before setting the higher byte(s)
-    dwm_write8reg(DWM_PMSC, 0, reg[0]);
-    dwm_write8reg(DWM_PMSC, 0x1, reg[1]);
+    dwm_write8reg(PMSC, 0, reg[0]);
+    dwm_write8reg(PMSC, 0x01, reg[1]);
 
 
 }
-*/
 
 uint32_t dwm_otpread(uint16_t address){
     uint32_t result;
@@ -316,20 +285,20 @@ uint32_t dwm_otpread(uint16_t address){
     dwm_write8reg(0x2D, 0x06, 0x03);
     dwm_write8reg(0x2D, 0x06, 0x00); // OTPREAD is self clearing but OTPRDEN is not
 
+    usleep(10000);
     // Read read data, available 40ns after rising edge of OTP_READ
     result = dwm_read32reg(0x2D, 0x0A);
 
     // Return the 32bit of read data
     return result;
 }
-/*
 
 void dwm_rxreset(){
     // Set RX reset
-    dwm_write8reg(DWM_PMSC, DWM_PMSC_SOFT, 0xE0);
+    dwm_write8reg(PMSC, 3, 0xE0);
 
     // Clear RX reset
-    dwm_write8reg(DWM_PMSC, DWM_PMSC_SOFT, 0xF0);
+    dwm_write8reg(PMSC, 3, 0xF0);
 }
 
 void dwm_reset(){
@@ -344,131 +313,166 @@ void dwm_reset(){
     usleep(20000);
 }
 
-void dwm_softreset(){
-    //Disable sequencing
-    dwm_enableclocks(FORCE_SYS_XTI); // Set system clock to XTI
-    dwm_write16reg(DWM_PMSC, 0x04, 0); // Disable PMSC ctrl of RF and RX clk blocks
+void dwm_clearTX(){
+    dwm_write32reg(SYS_STATUS, 0, SYS_STATUS_ALL_TX);
+}
 
-    // Clear any AON auto download bits (as reset will trigger AON download)
-    dwm_write16reg(DWM_AON, 0, 0x00);
-    // Clear the wake-up configuration
-    dwm_write8reg(DWM_AON, 0x06, 0x00);
-    // Upload the new configuration
-    dwm_write8reg(DWM_AON, 0x02, 0x00); // Clear the register
-    dwm_write8reg(DWM_AON, 0x02, 0x02);
+void dwm_manageLDE(){
+    uint32_t pmsc = dwm_read32reg(PMSC, PMSC_CTRL0);
+    uint16_t otpctrl = dwm_read16reg(OTP_IF, OTP_CTRL);
 
-    // Reset HIF, TX, RX and PMSC
-    dwm_write8reg(DWM_PMSC, 0x03, 0);
+    pmsc = 0x0301;
+    otpctrl = 0x8000;
 
-    // DW1000 needs a 10us sleep to let clk PLL lock after reset - the PLL will automatically lock after the reset
-    // Could also have polled the PLL lock flag, but then the SPI needs to be < 3MHz !! So a simple delay is easier
-    usleep(1000);
+    dwm_write32reg(PMSC, PMSC_CTRL0, pmsc);
+    dwm_write16reg(OTP_IF, OTP_CTRL, otpctrl);
 
-    // Clear reset
-    dwm_write8reg(DWM_PMSC, 0x03, 0xF0);
+    usleep(500000);
+
+    uint16_t final = 0x0200;
+    dwm_write16reg(PMSC, PMSC_CTRL0, final);
 }
 
 void dwm_initialize(){
-	dwm_softreset();
 
-    dwm_enableclocks(FORCE_SYS_XTI);
+    dwm_enableclocks(AUTO_CLK);
 
-    // Configure the CPLL lock detect
-    dwm_write8reg(DWM_EXT_SYNC, 0, 0x04);
+    usleep(500000);
 
-    //Check if tuning microcode is loaded
-    uint32_t ldotune = dwm_otpread(0x04);
-    if((ldotune & 0xFF) != 0){
-        ESP_LOGI(TAG, "Tune found");
-        dwm_write8reg(0x2D, 0x12, 0x02);
-    }else{
-        ESP_LOGI(TAG, "No tune found");
-    }
+    dwm_reset();
 
-    uint8_t xtal = dwm_otpread(0x1E) & 0x1F;
+    dwm_enableclocks(SYS_XTI);
 
-    if(!xtal){
-        xtal = 0x10;
-    }
+    usleep(500000);
 
-    dwm_write8reg(DWM_FSCTRL, 0x0E, ((3 << 5) | (xtal & 0x1F)));
+    dwm_manageLDE();
 
+    usleep(500000);
 
-    dwm_enableclocks(FORCE_LDE);
+    dwm_enableclocks(AUTO_CLK);
 
-    // Kick off the LDE load
-    dwm_write16reg(0x2D, 0x06, 0x8000);
+    usleep(100000);
 
-    usleep(1000);
-
-    // Default clocks (ENABLE_ALL_SEQ)
-    dwm_enableclocks(ENABLE_ALL_SEQ); // Enable clocks for sequencing
-
-    // The 3 bits in AON CFG1 register must be cleared to ensure proper operation of the DW1000 in DEEPSLEEP mode.
-    dwm_write8reg(DWM_AON, 0x0A, 0x00);
+    ESP_LOGI(TAG, "Stored voltage reading: %d V", dwm_otpread(0x008) & 0xFF);
+    ESP_LOGI(TAG, "Stored temperature reading: %d C", dwm_otpread(0x009) & 0xFF);
 }
-*/
 
 void dwm_configure(){
     //Channel config
     uint32_t config = dwm_read32reg(CHAN_CTRL, 0);
-    config &= ~(0xFF | (0xF << CHAN_CTRL_RXPRF_OFF) | (0x3FF << CHAN_CTRL_TXP_OFF)); //Clear channel, PCode, SFD and PRF settings
-    config |= 0x22 | (1 << CHAN_CTRL_DWSFD_OFF) | (0x2 << CHAN_CTRL_RXPRF_OFF) | (0x3 << CHAN_CTRL_TNSSFD_OFF) | (0x129 << CHAN_CTRL_TXP_OFF);
+    config &= ~(0xFF | (0xF << CHAN_CTRL_RXPRF_OFF) | (0x3FF << CHAN_CTRL_TXP_OFF) | (0x3 << CHAN_CTRL_TNSSFD_OFF)); //Clear channel, PCode, SFD and PRF settings
+    config |= 0x55 | (1 << CHAN_CTRL_DWSFD_OFF) | (0x1 << CHAN_CTRL_RXPRF_OFF) | (0x84 << CHAN_CTRL_TXP_OFF);
     dwm_write32reg(CHAN_CTRL, 0, config);
     ESP_LOGI(TAG, "Channel control is %X", dwm_read32reg(CHAN_CTRL, 0));
 
     //Transmit frame control config
     uint32_t fctrl = 0;
-    fctrl |= (0xA << TX_FCTRL_PRF_OFF);
+    fctrl |= (0x9 << TX_FCTRL_PRF_OFF) | (0x2 << 20);
     dwm_write32reg(TX_FCTRL, 0, fctrl);
     ESP_LOGI(TAG, "Frame control is %X", dwm_read32reg(TX_FCTRL, 0));
 
     //System configuration
     uint32_t sys = dwm_read32reg(SYS_CFG, 0);
-    sys |= (1 << 22);
+    sys |= (1 << 22) | (1 << 18) | (1 << 29);
     dwm_write32reg(SYS_CFG, 0, sys);
     ESP_LOGI(TAG, "SYS CFG is %X", dwm_read32reg(SYS_CFG, 0));
 
     //Frequency synthesiser configuration
-    dwm_write32reg(FS_CTRL, FS_PLLCFG, 0x08400508);
-    dwm_write8reg(FS_CTRL, FS_PLLTUNE, 0x26);
+    dwm_write32reg(FS_CTRL, FS_PLLCFG, 0x0800041D);
+    dwm_write8reg(FS_CTRL, FS_PLLTUNE, 0xBE);
+    uint8_t xtalt = dwm_otpread(0x1E);
+    if(xtalt != 0){
+        dwm_write8reg(FS_CTRL, FS_XTALT, ((xtalt & 0x1F) | 0x60));
+    }else{
+        dwm_write8reg(FS_CTRL, FS_XTALT, ((0x10 & 0x1F) | 0x60));
+    }
+    ESP_LOGI(TAG, "FS_PLLCFG is %X", dwm_read32reg(FS_CTRL, FS_PLLCFG));
+    ESP_LOGI(TAG, "FS_PLLTUNE is %X", dwm_read8reg(FS_CTRL, FS_PLLTUNE));
+    ESP_LOGI(TAG, "FX_XTALT is %X", dwm_read8reg(FS_CTRL, FS_XTALT));
 
     //Transmit/Recive channel analog
-    dwm_write24reg(RF_CONF, RF_CONF_TXCTRL, 0x00045CA0);
+    dwm_write24reg(RF_CONF, RF_CONF_TXCTRL, 0x001E3FE0);
     dwm_write8reg(RF_CONF, RF_CONF_RXCTRLH, 0xD8);
+
+    ESP_LOGI(TAG, "RF_CONF_TXCTRL is %X", dwm_read24reg(RF_CONF, RF_CONF_TXCTRL));
+    ESP_LOGI(TAG, "RF_CONF_RXCTRLH is %X", dwm_read8reg(RF_CONF, RF_CONF_RXCTRLH));
 
     //DRX Tune
     dwm_write16reg(DRX_CONF, DRX_CONF_TUNE0b, 0x0016);
-    dwm_write16reg(DRX_CONF, DRX_CONF_TUNE1a, 0x008D);
+    dwm_write16reg(DRX_CONF, DRX_CONF_TUNE1a, 0x0087);
     dwm_write16reg(DRX_CONF, DRX_CONF_TUNE1b, 0x0064);
-    dwm_write32reg(DRX_CONF, DRX_CONF_TUNE2, 0x353B015E);
-    //dwm_write16reg(DRX_CONF, DRX_CONF_TUNE4H, 0x0028);
+    dwm_write32reg(DRX_CONF, DRX_CONF_TUNE2, 0x371A011D);
+    dwm_write16reg(DRX_CONF, DRX_CONF_TUNE4H, 0x0028);
+
+    ESP_LOGI(TAG, "DRX_CONF_TUNE0b is %X", dwm_read16reg(DRX_CONF, DRX_CONF_TUNE0b));
+    ESP_LOGI(TAG, "DRX_CONF_TUNE1a is %X", dwm_read16reg(DRX_CONF, DRX_CONF_TUNE1a));
+    ESP_LOGI(TAG, "DRX_CONF_TUNE1b is %X", dwm_read16reg(DRX_CONF, DRX_CONF_TUNE1b));
+    ESP_LOGI(TAG, "DRX_CONF_TUNE2 is %X", dwm_read32reg(DRX_CONF, DRX_CONF_TUNE2));
+    ESP_LOGI(TAG, "DRX_CONF_TUNE4H is %X", dwm_read16reg(DRX_CONF, DRX_CONF_TUNE4H));
 
     //AGC tune configuration
-    dwm_write16reg(AGC_CTRL, AGC_CTRL_TUNE1, 0x889B);
+    dwm_write16reg(AGC_CTRL, AGC_CTRL_TUNE1, 0x8870);
     dwm_write32reg(AGC_CTRL, AGC_CTRL_TUNE2, 0x2502A907);
     dwm_write16reg(AGC_CTRL, AGC_CTRL_TUNE3, 0x0035);
 
+    ESP_LOGI(TAG, "AGC_CTRL_TUNE1 is %X", dwm_read16reg(AGC_CTRL, AGC_CTRL_TUNE1));
+    ESP_LOGI(TAG, "AGC_CTRL_TUNE2 is %X", dwm_read32reg(AGC_CTRL, AGC_CTRL_TUNE2));
+    ESP_LOGI(TAG, "AGC_CTRL_TUNE3 is %X", dwm_read16reg(AGC_CTRL, AGC_CTRL_TUNE3));
+
     //LDE configuration
-    dwm_write16reg(LDE_IF, LDE_CFG2, 0x0607);
-    dwm_write16reg(LDE_IF, LDE_REPC, (0x28F4 >> 3));
+    dwm_write8reg(LDE_IF, LDE_CFG1, 0xD);
+    dwm_write16reg(LDE_IF, LDE_CFG2, 0x1607);
+    dwm_write16reg(LDE_IF, LDE_REPC, (0x428E >> 3) & 0xFFFF);
+
+    ESP_LOGI(TAG, "LDE_CFG1 is %X", dwm_read8reg(LDE_IF, LDE_CFG1));
+    ESP_LOGI(TAG, "LDE_CFG2 is %X", dwm_read16reg(LDE_IF, LDE_CFG2));
+    ESP_LOGI(TAG, "LDE_REPC is %X", dwm_read16reg(LDE_IF, LDE_REPC));
 
     //Transmit calibration
-    dwm_write8reg(TX_CAL, TX_CAL_PGDELAY, 0xC2);
+    dwm_write8reg(TX_CAL, TX_CAL_PGDELAY, 0xB5);
 
-    //LDE load microcode
-    dwm_write16reg(PMSC, PMSC_CTRL0, 0x0301);
-    dwm_write16reg(OTP_IF, OTP_CTRL, 0x8000);
-    usleep(200);
-    dwm_write16reg(PMSC, PMSC_CTRL0, 0x0200);
+    ESP_LOGI(TAG, "TX_CAL_PGDELAY is %X", dwm_read8reg(TX_CAL, TX_CAL_PGDELAY));
+
+    //Transmit power
+    dwm_write32reg(TX_POWER, 0, 0x48484848); 
+    ESP_LOGI(TAG, "TX_POWER is %X", dwm_read32reg(TX_POWER, 0));
 
     dwm_write8reg(USR_SFD, 0, 64);
+    ESP_LOGI(TAG, "USR_SFD is %X", dwm_read8reg(USR_SFD, 0));
 
+    dwm_write16reg(LDE_IF, LDE_RXANTD, RX_ANT_DLY);
+    dwm_write16reg(TX_ANTD, 0, TX_ANT_DLY);
+
+    ESP_LOGI(TAG, "LDE_RXANTD is %X", dwm_read16reg(LDE_IF, LDE_RXANTD));
+    ESP_LOGI(TAG, "TX_ANTD is %X", dwm_read16reg(TX_ANTD, 0));
+
+    // follow the procedure from section 6.4 of the User Manual
+	dwm_write8reg(RF_CONF, 0x11, 0x80);
+	dwm_write8reg(RF_CONF, 0x12, 0x0A);
+	dwm_write8reg(RF_CONF, 0x12, 0x0F);
+	dwm_write8reg(TX_CAL, 0, 0x01);
+	dwm_write8reg(TX_CAL, 0, 0x00);
+	uint8_t sar_lvbat = dwm_read8reg(TX_CAL, 0x03);
+	uint8_t sar_ltemp = dwm_read8reg(TX_CAL, 0x04);
+
+    uint8_t _vmeas3v3 = dwm_otpread(0x008) & 0xFF;
+    uint8_t _tmeas23C = dwm_otpread(0x009) & 0xFF;
+	
+	// calculate voltage and temperature
+	double vbat = (sar_lvbat - _vmeas3v3) / 173.0f + 3.3f;
+	double temp = (sar_ltemp - _tmeas23C) * 1.14f + 23.0f;
+
+    ESP_LOGI(TAG, "Current TEMP: %.2f VOLTAGE: %.2f", temp, vbat);
+
+    dwm_write32reg(SYS_MASK, 0, 0x80);
 }
 
 void sayHello(){
+    //Clear TX flags
+    dwm_clearTX();
+
     //Set transmit buffer
-    uint8_t hello[] = {0xC5, 0, 'h', 'e', 'l', 'l', 'o', 0, 0};
+    uint8_t hello[] = {0, 0, 'h', 'e', 'l', 'l', 'o', 0, 0};
     dwm_set_txbuffer(hello, sizeof(hello) - 2);
 
     //Read transmit config
@@ -482,40 +486,34 @@ void sayHello(){
     ESP_LOGI(TAG, "New config %X", config);
     dwm_write32reg(TX_FCTRL, 0, config);
 
-    config = dwm_read32reg(TX_FCTRL, 0);
-
-    ESP_LOGI(TAG, "Confirming new config %X", config);
-
-    send32(config);
+    ESP_LOGI(TAG, "Confirming new config %X", dwm_read32reg(TX_FCTRL, 0));
 
     //Transmit!
     dwm_write8reg(SYS_CTRL, 0, 1 << SYS_CTRL_TXSTRT_OFF);
     ESP_LOGI(TAG, "Transmitting and waiting for confirmation");
 
-    while(!(dwm_read32reg(SYS_STATUS, 0) & (1 << 7))){}
+    //while(!(dwm_read32reg(SYS_STATUS, 0) & SYS_STATUS_TXFRS)){}
 
-    ESP_LOGI(TAG, "Sent!");
-
-    uint32_t clear = dwm_read32reg(SYS_STATUS, 0);
-    clear &= ~(1 << 7);
-    dwm_write32reg(SYS_STATUS, 0, clear);
+    //ESP_LOGI(TAG, "Sent!");
 }
-/*
 
 void range_respond(){
     uint32_t status_reg = 0;
 
+    //preamble timeout
+    dwm_write16reg(DRX_CONF, DRX_CONF_PRETOC, 8);
+
     dwm_setrxtimeout(0);
 
-    dwm_write32reg(DWM_SYS_CTRL, 0, 0x100); //Start RX
+    dwm_write32reg(SYS_CTRL, 0, 0x100); //Start RX
 
-    while (!((status_reg = dwm_read32reg(DWM_SYS_STATUS, 0)) & (1 << DWM_RXFCS | 1 << 17 | 1 << 21 | DWM_SYS_STATUS_ALL_RX_ERR))){}; //FCS, FTO, PTO
+    while (!((status_reg = dwm_read32reg(SYS_STATUS, 0)) & (SYS_STATUS_RXFCS | SYS_STATUS_ALL_RX_ERR))){}; //FCS, FTO, PTO
 
-    if(status_reg & (1 << DWM_RXFCS)){ //Good rx
+    if(status_reg & SYS_STATUS_RXFCS){ //Good rx
         ESP_LOGI(TAG, "Frame Received INIT");
-        dwm_write32reg(DWM_SYS_STATUS, 0, 1 << DWM_RXFCS); //Clear rx event
+        dwm_write32reg(SYS_STATUS, 0, SYS_STATUS_RXFCS); //Clear rx event
 
-        uint8_t rx_len = (uint8_t)(dwm_read32reg(DWM_RX_FINFO, 0) & 0x7F);
+        uint8_t rx_len = (uint8_t)(dwm_read32reg(RX_FINFO, 0) & 0x7F);
         ESP_LOGI(TAG, "Received %d bytes", rx_len);
 
         uint32_t resp_tx_time;
@@ -525,28 +523,28 @@ void range_respond(){
 
 
         resp_tx_time = (poll_rx_ts + (2600 * 65536)) >> 8;
-        dwm_write32reg(DWM_DXTIME, 1, resp_tx_time);
+        dwm_write32reg(DX_TIME, 1, resp_tx_time);
 
         dwm_setrxaftertxdelay(500);
         dwm_setrxtimeout(3300);
 
         dwm_set_txbuffer(resp_msg, sizeof(resp_msg) - 2);
 
-        uint32_t config = dwm_read32reg(DWM_TX_FCTRL, 0);
+        uint32_t config = dwm_read32reg(TX_FCTRL, 0);
         config = (~0xFF & config) | sizeof(resp_msg); //Size should be +2 for CRC - check docs
         config |= config & ~(0xFFC00000); //Clear offset
         config |= (1 << 15); //Enable ranging
-        dwm_write32reg(DWM_TX_FCTRL, 0, config);
+        dwm_write32reg(TX_FCTRL, 0, config);
 
-        dwm_write8reg(DWM_SYS_CTRL, 0, 0x86); //Delayed start, response expected
+        dwm_write8reg(SYS_CTRL, 0, 0x86); //Delayed start, response expected
 
-        while (!((status_reg = dwm_read32reg(DWM_SYS_STATUS, 0)) & (1 << DWM_RXFCS | 1 << 17 | 1 << 21 | DWM_SYS_STATUS_ALL_RX_ERR))){}; //FCS, FTO, PTO
+        while (!((status_reg = dwm_read32reg(SYS_STATUS, 0)) & (SYS_STATUS_RXFCS | 1 << 17 | 1 << 21 | SYS_STATUS_ALL_RX_ERR))){}; //FCS, FTO, PTO
 
-        if(status_reg & (1 << DWM_RXFCS)){ //Good rx
+        if(status_reg & SYS_STATUS_RXFCS){ //Good rx
             ESP_LOGI(TAG, "Frame Received FINAL");
-            dwm_write32reg(DWM_SYS_STATUS, 0, 1 << DWM_RXFCS | 1 << DWM_TXFRS); //Clear rx event
+            dwm_write32reg(SYS_STATUS, 0, SYS_STATUS_RXFCS | SYS_STATUS_TXFRS); //Clear rx event
 
-            uint8_t rx_len = (uint8_t)(dwm_read32reg(DWM_RX_FINFO, 0) & 0x7F);
+            uint8_t rx_len = (uint8_t)(dwm_read32reg(RX_FINFO, 0) & 0x7F);
             ESP_LOGI(TAG, "Received %d bytes", rx_len);
 
             uint32_t poll_tx_ts, resp_rx_ts, final_tx_ts;
@@ -574,22 +572,22 @@ void range_respond(){
             Db = (double)(resp_tx_ts_32 - poll_rx_ts_32);
             tof_dtu = (int64_t)((Ra * Rb - Da * Db) / (Ra + Rb + Da + Db));
 
-            double tof = tof_dtu * DWM_TIME_UNITS;
+            double tof = tof_dtu * TIME_UNITS;
             double distance = tof * SPEED_OF_LIGHT;
 
             ESP_LOGI(TAG, "Distance is %3.2f m", distance);
         }else{
-            ESP_LOGI(TAG, "Something went wrong in reading, STATUS %X", dwm_read32reg(DWM_SYS_STATUS, 0));
+            ESP_LOGI(TAG, "Something went wrong in reading, STATUS %X", dwm_read32reg(SYS_STATUS, 0));
             //Clear errors
-            dwm_write32reg(DWM_SYS_STATUS, 0, 1 << 17 | 1 << 21 | DWM_SYS_STATUS_ALL_RX_ERR);
+            dwm_write32reg(SYS_STATUS, 0, 1 << 17 | 1 << 21 | SYS_STATUS_ALL_RX_ERR);
 
             //Soft reset
             dwm_rxreset();
         }
     }else{
-        ESP_LOGI(TAG, "Something went wrong in reading, STATUS %X", dwm_read32reg(DWM_SYS_STATUS, 0));
+        ESP_LOGI(TAG, "Something went wrong in reading, STATUS %X", dwm_read32reg(SYS_STATUS, 0));
         //Clear errors
-        dwm_write32reg(DWM_SYS_STATUS, 0, 1 << 17 | 1 << 21 | DWM_SYS_STATUS_ALL_RX_ERR);
+        dwm_write32reg(SYS_STATUS, 0, 1 << 17 | 1 << 21 | SYS_STATUS_ALL_RX_ERR);
 
         //Soft reset
         dwm_rxreset();
@@ -605,24 +603,24 @@ void range_init(){
 
     dwm_set_txbuffer(poll_msg, sizeof(poll_msg) - 2);
 
-    uint32_t config = dwm_read32reg(DWM_TX_FCTRL, 0);
+    uint32_t config = dwm_read32reg(TX_FCTRL, 0);
     config = (~0xFF & config) | sizeof(poll_msg); //Size should be +2 for CRC - check docs
     config |= config & ~(0xFFC00000); //Clear offset
     config |= (1 << 15); //Enable ranging
-    dwm_write32reg(DWM_TX_FCTRL, 0, config);
+    dwm_write32reg(TX_FCTRL, 0, config);
 
-    dwm_write8reg(DWM_SYS_CTRL, 0, 0x82); //Wait for response and start transmission
+    dwm_write8reg(SYS_CTRL, 0, 0x82); //Wait for response and start transmission
 
     uint32_t status_reg = 0;
 
-    while(!((status_reg = dwm_read32reg(DWM_SYS_STATUS, 0)) & (1 << DWM_RXFCS | 1 << 17 | 1 << 21 | DWM_SYS_STATUS_ALL_RX_ERR))){}; //FCS, FTO, PTO
+    while(!((status_reg = dwm_read32reg(SYS_STATUS, 0)) & (SYS_STATUS_RXFCS | 1 << 17 | 1 << 21 | SYS_STATUS_ALL_RX_ERR))){}; //FCS, FTO, PTO
 
-    if(status_reg & (1 << DWM_RXFCS)){ //Good rx
+    if(status_reg & SYS_STATUS_RXFCS){ //Good rx
         ESP_LOGI(TAG, "Received Frame INTER");
         //Clear good RX frame event and TX frame sent in the DW1000 status register
-        dwm_write32reg(DWM_SYS_STATUS, 0, 1 << DWM_RXFCS | 1 << DWM_TXFRS);
+        dwm_write32reg(SYS_STATUS, 0, SYS_STATUS_RXFCS | SYS_STATUS_TXFRS);
 
-        uint8_t rx_len = (uint8_t)(dwm_read32reg(DWM_RX_FINFO, 0) & 0x7F);
+        uint8_t rx_len = (uint8_t)(dwm_read32reg(RX_FINFO, 0) & 0x7F);
         ESP_LOGI(TAG, "Received %d bytes", rx_len);
 
         uint32_t final_tx_time;
@@ -631,7 +629,7 @@ void range_init(){
         resp_rx_ts = dwm_readtime_rx();
 
         final_tx_time = (resp_rx_ts + (3100 * 65536)) >> 8;
-        dwm_write32reg(DWM_DXTIME, 1, final_tx_time);
+        dwm_write32reg(DX_TIME, 1, final_tx_time);
 
         final_tx_ts = (((uint64_t)(final_tx_time & 0xFFFFFFFEUL)) << 8) + TX_ANT_DLY;
 
@@ -642,35 +640,40 @@ void range_init(){
 
         dwm_set_txbuffer(final_msg, sizeof(final_msg));
 
-        config = dwm_read32reg(DWM_TX_FCTRL, 0);
+        config = dwm_read32reg(TX_FCTRL, 0);
         config = (~0xFF & config) | sizeof(final_msg); //Size should be +2 for CRC - check docs
         config |= config & ~(0xFFC00000); //Clear offset
         config |= (1 << 15); //Enable ranging
-        dwm_write32reg(DWM_TX_FCTRL, 0, config);
+        dwm_write32reg(TX_FCTRL, 0, config);
 
-        dwm_write8reg(DWM_SYS_CTRL, 0, 0x06); //Delayed and start
+        dwm_write8reg(SYS_CTRL, 0, 0x06); //Delayed and start
 
-        while (!(dwm_read32reg(DWM_SYS_STATUS, 0) & (1 << DWM_TXFRS))){ };
+        while (!(dwm_read32reg(SYS_STATUS, 0) & SYS_STATUS_TXFRS)){ };
 
-        dwm_write32reg(DWM_SYS_STATUS, 0, 1 << DWM_TXFRS);
+        dwm_write32reg(SYS_STATUS, 0, 1 << SYS_CTRL_TXSTRT_OFF);
 
     }else{
-        ESP_LOGI(TAG, "Something went wrong in reading, STATUS %X", dwm_read32reg(DWM_SYS_STATUS, 0));
+        ESP_LOGI(TAG, "Something went wrong in reading, STATUS %X", dwm_read32reg(SYS_STATUS, 0));
         //Clear errors
-        dwm_write32reg(DWM_SYS_STATUS, 0, 1 << 17 | 1 << 21 | DWM_SYS_STATUS_ALL_RX_ERR);
+        dwm_write32reg(SYS_STATUS, 0, 1 << 17 | 1 << 21 | SYS_STATUS_ALL_RX_ERR);
 
         //Soft reset
         dwm_rxreset();
     }
 
 }
-*/
 
 void dwm_rx(){
-    dwm_write32reg(SYS_CTRL, 0, 0x100);
+    dwm_write32reg(SYS_CTRL, 0, 1 << SYS_CTRL_RXENAB_OFF);
     uint32_t status;
 
     while(!((status = dwm_read32reg(SYS_STATUS, 0)) & (SYS_STATUS_ALL_RX_ERR | SYS_STATUS_RXFCS ))){}
+
+    if(status & SYS_STATUS_RXFCS){
+        ESP_LOGI(TAG, "Good frame!");
+    }else{
+        ESP_LOGI(TAG, "Bad frame :(");
+    }
 
     ESP_LOGI(TAG, "System status is %X", status);
 
@@ -679,147 +682,19 @@ void dwm_rx(){
     ESP_LOGI(TAG, "Received %d bytes of data", rx_len);
 
     uint8_t data[rx_len];
+    for(int i = 0; i < rx_len; i++){
+        data[i] = 0;
+    }
     dwm_read(0x11, 0, rx_len, data);
 
     for(int i = 0; i < rx_len; i++){
         ESP_LOGI(TAG, "Data received: %d %c", data[i], data[i]);
     }
+
+    uint32_t clear = dwm_read32reg(SYS_STATUS, 0);
+    clear &= ~(1 << 7) | 0x7FF00;
+    dwm_write32reg(SYS_STATUS, 0, clear);
 }
-/*
-
-void dwm_configure(){
-    //SYS_CFG
-    uint32_t sys_cfg = dwm_read32reg(DWM_SYS_CFG, 0);
-    ESP_LOGI(TAG, "SYS_CFG configured to %X", sys_cfg);
-    sys_cfg |= (1 << 22);
-    sys_cfg &= ~(0x03 << 16);
-    dwm_write32reg(DWM_SYS_CFG, 0, sys_cfg);
-    ESP_LOGI(TAG, "New SYS_CFG configured to %X", dwm_read32reg(DWM_SYS_CFG, 0));
-
-    //Set LDE replica coefficient
-    dwm_write16reg(DWM_LDEIF, DWM_LDEIF_REPC, DWM_LDE_REPC_CODE9);
-    ESP_LOGI(TAG, "LDEIF REPC %X", dwm_read16reg(DWM_LDEIF, DWM_LDEIF_REPC));
-
-    //Set LDE config
-    dwm_write8reg(DWM_LDEIF, 0x0806, ((0x60) | (13)));
-    dwm_write16reg(DWM_LDEIF, 0x1806, 0x0607); // 16-bit LDE configuration tuning register
-    ESP_LOGI(TAG, "LDEIF 0x0806 %X", dwm_read8reg(DWM_LDEIF, 0x0806));
-    ESP_LOGI(TAG, "LDEIF 0x1806 %X", dwm_read16reg(DWM_LDEIF, 0x1806));
-
-    //Set channel 5 PLL CFG and Tune
-    dwm_write32reg(DWM_FSCTRL, DWM_FSCTRL_PLLCFG, DWM_FSCTRL_PLLCFG_CH5);
-    dwm_write8reg(DWM_FSCTRL, DWM_FSCTRL_PLLTUNE, DWM_FSCTRL_PLLTUNE_CH5);
-    ESP_LOGI(TAG, "FSCTRL_PLLCFG %X", dwm_read32reg(DWM_FSCTRL, DWM_FSCTRL_PLLCFG));
-    ESP_LOGI(TAG, "FSCTRL_PLLTUNE %X", dwm_read8reg(DWM_FSCTRL, DWM_FSCTRL_PLLTUNE));
-
-    //Configure TX and RX RF blocks
-    dwm_write8reg(DWM_RFCONF, DWM_RFCONF_RXCTRL, DWM_RFCONF_RXCTRL_CH5);
-    dwm_write24reg(DWM_RFCONF, DWM_RFCONF_TXCTRL, DWM_RFCONF_TXCTRL_CH5);
-    ESP_LOGI(TAG, "RFCONF_RXCTRL %X", dwm_read8reg(DWM_RFCONF, DWM_RFCONF_RXCTRL));
-    ESP_LOGI(TAG, "RFCONF_TXCTRL %X", dwm_read24reg(DWM_RFCONF, DWM_RFCONF_TXCTRL));
-
-    //Set SFD config for RX tune 0b
-    dwm_write16reg(DWM_DRX, DWM_DRX_TUNE0b, 0x0016);
-    ESP_LOGI(TAG, "DWM_DRX_TUNE0b %X", dwm_read16reg(DWM_DRX, DWM_DRX_TUNE0b));
-
-    //Set tune to 64 MHz PRF
-    dwm_write16reg(DWM_DRX, DWM_DRX_TUNE1a, 0x008D);
-    ESP_LOGI(TAG, "DWM_DRX_TUNE1a %X", dwm_read16reg(DWM_DRX, DWM_DRX_TUNE1a));
-
-    //Set BR to 110kbps
-    dwm_write16reg(DWM_DRX, DWM_DRX_TUNE1b, 0x0064);
-    ESP_LOGI(TAG, "DWM_DRX_TUNE1b %X", dwm_read16reg(DWM_DRX, DWM_DRX_TUNE1b));
-
-    //Set PAC size
-    dwm_write32reg(DWM_DRX, DWM_DRX_TUNE2, 0x353B015E);
-    ESP_LOGI(TAG, "DWM_DRX_TUNE2 %X", dwm_read32reg(DWM_DRX, DWM_DRX_TUNE2));
-
-    //Set Smart Power stuff
-    dwm_write32reg(0x1E, 0, 0x25456585);
-
-    //Set expected preamble
-    dwm_write16reg(DWM_DRX, 0x26, 0x0028);
-    ESP_LOGI(TAG, "DWM_DRX_0x26 %X", dwm_read32reg(DWM_DRX, 0x26));
-
-    //Set SFD timeout
-    dwm_write16reg(DWM_DRX, DWM_DRX_SFDTOC, (1025 + 64 - 32)); //Preamble length + 1 + SFD - PAC
-    ESP_LOGI(TAG, "DWM_DRX_SFDTOC %X", dwm_read16reg(DWM_DRX, DWM_DRX_SFDTOC));
-
-    //Tune AGC
-    dwm_write16reg(DWM_AGC, DWM_AGC_TUNE1, DWM_AGC_TUNE1_64PRF);
-    dwm_write32reg(DWM_AGC, DWM_AGC_TUNE2, DWM_AGC_TUNE2_CONST);
-    dwm_write16reg(DWM_AGC, 0x12, 0x0035);
-    ESP_LOGI(TAG, "DWM_AGC_TUNE1 %X", dwm_read16reg(DWM_AGC, DWM_AGC_TUNE1      ));
-    ESP_LOGI(TAG, "DWM_AGC_TUNE2 %X", dwm_read32reg(DWM_AGC, DWM_AGC_TUNE2));
-    ESP_LOGI(TAG, "DWM_AGC_TUNE3 %X", dwm_read16reg(DWM_AGC, 0x12));
-
-    //Set SFD length
-    dwm_write8reg(DWM_USR_SFD, 0, 64);
-    ESP_LOGI(TAG, "DWM_USR_SFD %X", dwm_read8reg(DWM_USR_SFD, 0));
-
-    //Set channel PRF to 64MHz and preamble code to 9
-    uint32_t chan_ctrl = dwm_read32reg(DWM_CHAN_CTRL, 0);
-    chan_ctrl &= ~(0x03 << DWM_RXPRF); //Clear PRF settings
-    chan_ctrl &= ~(0xFFE00000); //Clear preamble codes
-    chan_ctrl |= (0x02 << DWM_RXPRF); //Set PRF to 64 MHz
-    chan_ctrl |= (0x09 << DWM_PCODE | 0x09 << (DWM_PCODE + 5));  //Preamble code = 9 on TX and RX
-    chan_ctrl |= (1 << 17); //Enable non-standard SFD
-    chan_ctrl |= (0x03 << 20); //Enable non-standard SFD on TX and RX
-    dwm_write32reg(DWM_CHAN_CTRL, 0, chan_ctrl);
-    ESP_LOGI(TAG, "CHAN_CTRL configured to %X", dwm_read32reg(DWM_CHAN_CTRL, 0));
-
-    //Configure TX frame control
-    uint32_t fctrl = dwm_read32reg(DWM_TX_FCTRL, 0);
-    fctrl &= ~(0x03 << DWM_TX_FCTRL_BR | 0x03 << DWM_TX_FCTRL_PRF | 0x03 << DWM_TX_FCTRL_PSR | 0x03 << DWM_TX_FCTRL_PE);
-    fctrl |= (0x02 << DWM_TX_FCTRL_PRF | 0x02 << DWM_TX_FCTRL_PSR); //PRF to 64 MHz and PSR to 1024 (bits to 10 each)
-    dwm_write32reg(DWM_TX_FCTRL, 0, fctrl);
-    ESP_LOGI(TAG, "DWM_TX_FCTRL configured to %X", dwm_read32reg(DWM_TX_FCTRL, 0));
-
-    //Set preamble detect timeout
-    dwm_write16reg(DWM_DRX, DWM_DRX_PRETOC, 31); //0 - disabled 8 - recommendedd
-    ESP_LOGI(TAG, "DWM_DRX_PRETOC configured to %X", dwm_read16reg(DWM_DRX, DWM_DRX_PRETOC));
-
-    //TC channel 5
-    dwm_write8reg(DWM_TC, DWM_TC_PGDELAY, 0xC0);
-    ESP_LOGI(TAG, "DWM_TC_PGDELAY configured to %X", dwm_read8reg(DWM_TC, DWM_TC_PGDELAY));
-
-    //Apparently fixes some bug with SFD
-    dwm_write8reg(DWM_SYS_CTRL, 0, 0x42); // Request TX start and TRX off at the same time
-    ESP_LOGI(TAG, "DWM_SYS_CTRL configured to %X", dwm_read8reg(DWM_SYS_CTRL, 0));
-
-    //Set antenna delays
-    dwm_write16reg(DWM_LDEIF, DWM_LDEIF_RXANTD, RX_ANT_DLY);
-    dwm_write16reg(DWM_TXANTD, 0, TX_ANT_DLY);
-
-}
-*/
-
-/*
-void radio_get_temperature(){
-    dwm_write8reg(DWM_RFCONF, 0x11, 0x80); // Enable TLD Bias
-
-    dwm_write8reg(DWM_RFCONF, 0x12, 0x0A); // Enable TLD Bias and ADC Bias
-
-    dwm_write8reg(DWM_RFCONF, 0x12, 0x0f); // Enable Outputs (only after Biases are up and running)
-
-    dwm_write8reg(0x2A, 0, 0x00);
-    dwm_write8reg(0x2A, 0, 0x01);
-
-    dwm_enableclocks(FORCE_SYS_XTI); // NOTE: set system clock to XTI - this is necessary to make sure the values read are reliable
-    // Read voltage and temperature.
-    uint16_t both = dwm_read16reg(0x2A, 0x03);
-    // Default clocks (ENABLE_ALL_SEQ)
-    dwm_enableclocks(ENABLE_ALL_SEQ); // Enable clocks for sequencing
-
-    uint8_t volt = (uint8_t)both;
-    uint8_t temp = (uint8_t)(both >> 8);
-
-    dwm_write8reg(0x2A, 0, 0x00);
-
-    char msg[2] = {volt, temp};
-    send(sock, msg, 2, 0);
-}
-*/
 
 /*
 
@@ -878,12 +753,12 @@ static void do_retransmit()
             }
 
             if(!strcmp(rx_buffer, "init")){
-                //range_init();
+                range_init();
                 send(sock, "ok", 2, 0);
             }
 
             if(!strcmp(rx_buffer, "range")){
-                //range_respond();
+                range_respond();
                 send(sock, "ok", 2, 0);
             }
 
@@ -1097,6 +972,22 @@ void scan_task(){
     }
 }
 
+static void IRAM_ATTR gpio_isr_handler(void* arg){
+    uint32_t gpio_num = (uint32_t) arg;
+    
+    uint32_t status = dwm_read32reg(SYS_STATUS, 0);
+
+    if(status & SYS_STATUS_TXFRS){
+        ESP_LOGI(TAG, "IRQ: Frame sent!");
+        dwm_write32reg(SYS_STATUS, 0, SYS_STATUS_ALL_TX);
+    }else if(status & SYS_STATUS_RXFCS){
+        ESP_LOGI(TAG, "IRQ: Frame received!");
+        dwm_write32reg(SYS_STATUS, 0, SYS_STATUS_RXFCS);
+    }else{
+        ESP_LOGI(TAG, "IRQ: Some other event happened!");
+    }
+}
+
 void app_main(void)
 {
     //Initialize NVS
@@ -1150,10 +1041,33 @@ void app_main(void)
         .pre_cb=radio_spi_pre_transfer_callback,  //Specify pre-transfer callback to handle D/C line
     };
 
+    ESP_LOGI(TAG, "Set SPI to MISO %d MOSI %d CK %d CS %d",PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
+
+    gpio_config_t io_conf;
+
+    //interrupt of rising edge
+    io_conf.intr_type = GPIO_INTR_POSEDGE;
+    //bit mask of the pins, use GPIO4/5 here
+    io_conf.pin_bit_mask = (1ULL << PIN_NUM_IRQ);
+    //set as input mode
+    io_conf.mode = GPIO_MODE_INPUT;
+    //enable pull-up mode
+    io_conf.pull_up_en = 1;
+    gpio_config(&io_conf);
+
+    gpio_install_isr_service(0);
+    //hook isr handler for specific gpio pin
+    gpio_isr_handler_add(PIN_NUM_IRQ, gpio_isr_handler, (void*) PIN_NUM_IRQ);
 
     ESP_ERROR_CHECK(spi_bus_initialize(1, &buscfg, DMA_CHAN));
 
     ESP_ERROR_CHECK(spi_bus_add_device(1, &devcfg, &spi));
+
+    gpio_set_direction(PIN_NUM_RST, GPIO_MODE_INPUT);
+
+    usleep(500000);
+
+    dwm_initialize();
 
     dwm_configure();
 
