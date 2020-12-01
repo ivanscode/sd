@@ -2,7 +2,7 @@ import SocketManager as sm
 import socket
 import time
 
-IP = '192.168.1.32'
+IP = '192.168.1.33'
 
 def process():
     device = sm.SocketManager(IP)

@@ -271,8 +271,6 @@ void dwm_enableclocks(int clocks){
     // Need to write lower byte separately before setting the higher byte(s)
     dwm_write8reg(PMSC, 0, reg[0]);
     dwm_write8reg(PMSC, 0x01, reg[1]);
-
-
 }
 
 uint32_t dwm_otpread(uint16_t address){
@@ -338,12 +336,16 @@ void dwm_initialize(){
     dwm_enableclocks(AUTO_CLK);
 
     usleep(500000);
+    ESP_LOGI(TAG, "System Status before reset: %X", dwm_read32reg(SYS_STATUS, 0));
 
     dwm_reset();
+    ESP_LOGI(TAG, "System Status before SYS_XTI: %X", dwm_read32reg(SYS_STATUS, 0));
 
     dwm_enableclocks(SYS_XTI);
 
     usleep(500000);
+    dwm_write16reg(AON, 0, 1 << 11); //LLDE
+    ESP_LOGI(TAG, "System Status before LDE: %X", dwm_read32reg(SYS_STATUS, 0));
 
     dwm_manageLDE();
 
@@ -352,6 +354,7 @@ void dwm_initialize(){
     dwm_enableclocks(AUTO_CLK);
 
     usleep(100000);
+    ESP_LOGI(TAG, "System Status after init: %X", dwm_read32reg(SYS_STATUS, 0));
 
     ESP_LOGI(TAG, "Stored voltage reading: %d V", dwm_otpread(0x008) & 0xFF);
     ESP_LOGI(TAG, "Stored temperature reading: %d C", dwm_otpread(0x009) & 0xFF);
@@ -367,13 +370,13 @@ void dwm_configure(){
 
     //Transmit frame control config
     uint32_t fctrl = 0;
-    fctrl |= (0x9 << TX_FCTRL_PRF_OFF) | (0x2 << 20);
+    fctrl |= (0x9 << TX_FCTRL_PRF_OFF);
     dwm_write32reg(TX_FCTRL, 0, fctrl);
     ESP_LOGI(TAG, "Frame control is %X", dwm_read32reg(TX_FCTRL, 0));
 
     //System configuration
     uint32_t sys = dwm_read32reg(SYS_CFG, 0);
-    sys |= (1 << 22) | (1 << 18) | (1 << 29);
+    sys |= (1 << 22);
     dwm_write32reg(SYS_CFG, 0, sys);
     ESP_LOGI(TAG, "SYS CFG is %X", dwm_read32reg(SYS_CFG, 0));
 
@@ -391,7 +394,7 @@ void dwm_configure(){
     ESP_LOGI(TAG, "FX_XTALT is %X", dwm_read8reg(FS_CTRL, FS_XTALT));
 
     //Transmit/Recive channel analog
-    dwm_write24reg(RF_CONF, RF_CONF_TXCTRL, 0x001E3FE0);
+    dwm_write24reg(RF_CONF, RF_CONF_TXCTRL, 0x001E3FE3);
     dwm_write8reg(RF_CONF, RF_CONF_RXCTRLH, 0xD8);
 
     ESP_LOGI(TAG, "RF_CONF_TXCTRL is %X", dwm_read24reg(RF_CONF, RF_CONF_TXCTRL));
@@ -401,7 +404,7 @@ void dwm_configure(){
     dwm_write16reg(DRX_CONF, DRX_CONF_TUNE0b, 0x0016);
     dwm_write16reg(DRX_CONF, DRX_CONF_TUNE1a, 0x0087);
     dwm_write16reg(DRX_CONF, DRX_CONF_TUNE1b, 0x0064);
-    dwm_write32reg(DRX_CONF, DRX_CONF_TUNE2, 0x371A011D);
+    dwm_write32reg(DRX_CONF, DRX_CONF_TUNE2, 0x351A009A);
     dwm_write16reg(DRX_CONF, DRX_CONF_TUNE4H, 0x0028);
 
     ESP_LOGI(TAG, "DRX_CONF_TUNE0b is %X", dwm_read16reg(DRX_CONF, DRX_CONF_TUNE0b));
@@ -433,10 +436,6 @@ void dwm_configure(){
 
     ESP_LOGI(TAG, "TX_CAL_PGDELAY is %X", dwm_read8reg(TX_CAL, TX_CAL_PGDELAY));
 
-    //Transmit power
-    dwm_write32reg(TX_POWER, 0, 0x48484848); 
-    ESP_LOGI(TAG, "TX_POWER is %X", dwm_read32reg(TX_POWER, 0));
-
     dwm_write8reg(USR_SFD, 0, 64);
     ESP_LOGI(TAG, "USR_SFD is %X", dwm_read8reg(USR_SFD, 0));
 
@@ -463,13 +462,13 @@ void dwm_configure(){
 	double temp = (sar_ltemp - _tmeas23C) * 1.14f + 23.0f;
 
     ESP_LOGI(TAG, "Current TEMP: %.2f VOLTAGE: %.2f", temp, vbat);
-
-    dwm_write32reg(SYS_MASK, 0, 0x80);
+    ESP_LOGI(TAG, "System Status after config: %X", dwm_read32reg(SYS_STATUS, 0));
 }
 
 void sayHello(){
     //Clear TX flags
-    dwm_clearTX();
+    //dwm_clearTX();
+    ESP_LOGI(TAG, "System Status before hello: %X", dwm_read32reg(SYS_STATUS, 0));
 
     //Set transmit buffer
     uint8_t hello[] = {0, 0, 'h', 'e', 'l', 'l', 'o', 0, 0};
@@ -486,15 +485,32 @@ void sayHello(){
     ESP_LOGI(TAG, "New config %X", config);
     dwm_write32reg(TX_FCTRL, 0, config);
 
+    ESP_LOGI(TAG, "System Status before transmit: %X", dwm_read32reg(SYS_STATUS, 0));
+
     ESP_LOGI(TAG, "Confirming new config %X", dwm_read32reg(TX_FCTRL, 0));
 
     //Transmit!
     dwm_write8reg(SYS_CTRL, 0, 1 << SYS_CTRL_TXSTRT_OFF);
     ESP_LOGI(TAG, "Transmitting and waiting for confirmation");
 
-    //while(!(dwm_read32reg(SYS_STATUS, 0) & SYS_STATUS_TXFRS)){}
+    ESP_LOGI(TAG, "System Status after transmit: %X", dwm_read32reg(SYS_STATUS, 0));
 
-    //ESP_LOGI(TAG, "Sent!");
+    uint32_t status;
+
+    while(!((status = dwm_read32reg(SYS_STATUS, 0)) & SYS_STATUS_TXFRS)){
+        if(status & SYS_STATUS_TXFRB){
+            ESP_LOGI(TAG, "Transmit frame begins");
+        }
+        if(status & SYS_STATUS_TXPRS){
+            ESP_LOGI(TAG, "Preamble sent");
+        }
+        if(status & SYS_STATUS_TXPHS){
+            ESP_LOGI(TAG, "PHY header sent");
+        }
+    }
+    ESP_LOGI(TAG, "STATUS: %X", status);
+
+    ESP_LOGI(TAG, "Sent!");
 }
 
 void range_respond(){
@@ -667,7 +683,20 @@ void dwm_rx(){
     dwm_write32reg(SYS_CTRL, 0, 1 << SYS_CTRL_RXENAB_OFF);
     uint32_t status;
 
-    while(!((status = dwm_read32reg(SYS_STATUS, 0)) & (SYS_STATUS_ALL_RX_ERR | SYS_STATUS_RXFCS ))){}
+    while(!((status = dwm_read32reg(SYS_STATUS, 0)) & (SYS_STATUS_ALL_RX_ERR | SYS_STATUS_RXFCS ))){
+        if(status & SYS_STATUS_RXPRD){
+            ESP_LOGI(TAG, "Preamble detected");
+        }
+        if(status & SYS_STATUS_RXSFDD){
+            ESP_LOGI(TAG, "SFD detected");
+        }
+        if(status & SYS_STATUS_LDEDONE){
+            ESP_LOGI(TAG, "Leading edge done");
+        }
+        if(status & SYS_STATUS_RXPHD){
+            ESP_LOGI(TAG, "PHY Header found");
+        }
+    }
 
     if(status & SYS_STATUS_RXFCS){
         ESP_LOGI(TAG, "Good frame!");
@@ -927,8 +956,7 @@ void wifi_init_sta(void)
     vEventGroupDelete(s_wifi_event_group);
 }
 
-void radio_spi_pre_transfer_callback(spi_transaction_t *t)
-{
+void radio_spi_pre_transfer_callback(spi_transaction_t *t){
     //int dc=(int)t->user;
     //gpio_set_level(PIN_NUM_DC, dc);
     //ESP_LOGI(TAG, "Transfer on SPI");
@@ -1001,16 +1029,6 @@ void app_main(void)
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
     wifi_init_sta();
 
-    gpio_pad_select_gpio(13);
-    gpio_set_direction(13, GPIO_MODE_OUTPUT);
-
-    gpio_pad_select_gpio(14);
-    gpio_set_direction(14, GPIO_MODE_OUTPUT);
-
-    gpio_pad_select_gpio(15);
-    gpio_set_direction(15, GPIO_MODE_OUTPUT);
-    gpio_set_level(15, 0);
-
     uart_config_t uart_config = {
         .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
@@ -1034,7 +1052,7 @@ void app_main(void)
     };
 
     spi_device_interface_config_t devcfg={
-        .clock_speed_hz=10*1000,           //Clock out at 0.01 MHz
+        .clock_speed_hz=10*10000,           //Clock out at 0.01 MHz
         .mode=0,                                //SPI mode 0
         .spics_io_num = PIN_NUM_CS,              //CS pin
         .queue_size = 7,                          //We want to be able to queue 7 transactions at a time
@@ -1042,22 +1060,6 @@ void app_main(void)
     };
 
     ESP_LOGI(TAG, "Set SPI to MISO %d MOSI %d CK %d CS %d",PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
-
-    gpio_config_t io_conf;
-
-    //interrupt of rising edge
-    io_conf.intr_type = GPIO_INTR_POSEDGE;
-    //bit mask of the pins, use GPIO4/5 here
-    io_conf.pin_bit_mask = (1ULL << PIN_NUM_IRQ);
-    //set as input mode
-    io_conf.mode = GPIO_MODE_INPUT;
-    //enable pull-up mode
-    io_conf.pull_up_en = 1;
-    gpio_config(&io_conf);
-
-    gpio_install_isr_service(0);
-    //hook isr handler for specific gpio pin
-    gpio_isr_handler_add(PIN_NUM_IRQ, gpio_isr_handler, (void*) PIN_NUM_IRQ);
 
     ESP_ERROR_CHECK(spi_bus_initialize(1, &buscfg, DMA_CHAN));
 
@@ -1067,9 +1069,35 @@ void app_main(void)
 
     usleep(500000);
 
-    dwm_initialize();
+    //dwm_initialize();
 
-    dwm_configure();
+    //dwm_configure();
+    //AGC tune configuration
+    /*
+    dwm_write16reg(AGC_CTRL, AGC_CTRL_TUNE1, 0x8870);
+    dwm_write32reg(AGC_CTRL, AGC_CTRL_TUNE2, 0x2502A907);
+
+    ESP_LOGI(TAG, "AGC_CTRL_TUNE1 is %X", dwm_read16reg(AGC_CTRL, AGC_CTRL_TUNE1));
+    ESP_LOGI(TAG, "AGC_CTRL_TUNE2 is %X", dwm_read32reg(AGC_CTRL, AGC_CTRL_TUNE2));
+
+    dwm_write32reg(DRX_CONF, DRX_CONF_TUNE2, 0x311A002D);
+
+    dwm_write16reg(LDE_IF, LDE_CFG2, 0x1607);
+
+    dwm_write32reg(TX_POWER, 0, 0x0E082848);
+
+    dwm_write24reg(RF_CONF, RF_CONF_TXCTRL, 0x001E3FE3);
+
+    dwm_write8reg(TX_CAL, TX_CAL_PGDELAY, 0xC0);
+
+    dwm_write8reg(FS_CTRL, FS_PLLTUNE, 0xBE);
+    */
+
+
+
+    gpio_pad_select_gpio(33);
+    gpio_set_direction(33, GPIO_MODE_OUTPUT);
+    gpio_set_level(33, 1);
 
     xTaskCreate(tcp_server_task, "tcp_server", 4024, NULL, 5, NULL);
 }
