@@ -5,7 +5,7 @@ import _thread as thread
 
 DEVICE_COUNT = 3 #Not used atm
 NET_BASE = '192.168.1.' #Change depending on network
-RL = 2 #From IP.2
+RL = 4 #From IP.2
 RH = 10 #To IP.20
 
 class Command:
@@ -23,7 +23,8 @@ class Command:
 
 def scan(addr):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    socket.setdefaulttimeout(0.5)
+    socket.setdefaulttimeout(1)
+    print('Trying {}'.format(addr))
     result = s.connect_ex((addr, sm.PORT))
     if result == 0:
         return 1
