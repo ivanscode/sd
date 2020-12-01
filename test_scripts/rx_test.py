@@ -2,11 +2,11 @@ import SocketManager as sm
 import socket
 import time
 
-IP = '192.168.1.3'
+IP = '192.168.1.33'
 
 def process():
     device = sm.SocketManager(IP)
-    
+
     while True:
         device.send('rx')
 
@@ -14,7 +14,7 @@ def process():
 
 
 def main():
-    process()          
+    process()
 
-if __name__ == '__main__': 
+if __name__ == '__main__':
     main()
