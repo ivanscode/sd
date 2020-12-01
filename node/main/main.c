@@ -316,19 +316,12 @@ void dwm_clearTX(){
 }
 
 void dwm_manageLDE(){
-    uint32_t pmsc = dwm_read32reg(PMSC, PMSC_CTRL0);
-    uint16_t otpctrl = dwm_read16reg(OTP_IF, OTP_CTRL);
-
-    pmsc = 0x0301;
-    otpctrl = 0x8000;
-
-    dwm_write32reg(PMSC, PMSC_CTRL0, pmsc);
-    dwm_write16reg(OTP_IF, OTP_CTRL, otpctrl);
+    dwm_write16reg(PMSC, PMSC_CTRL0, 0x0301);
+    dwm_write16reg(OTP_IF, OTP_CTRL, 0x8000);
 
     usleep(500000);
 
-    uint16_t final = 0x0200;
-    dwm_write16reg(PMSC, PMSC_CTRL0, final);
+    dwm_write16reg(PMSC, PMSC_CTRL0, 0x0200);
 }
 
 void dwm_initialize(){
@@ -358,6 +351,53 @@ void dwm_initialize(){
 
     ESP_LOGI(TAG, "Stored voltage reading: %d V", dwm_otpread(0x008) & 0xFF);
     ESP_LOGI(TAG, "Stored temperature reading: %d C", dwm_otpread(0x009) & 0xFF);
+}
+
+void dmw_default(){
+    //Channel
+    dwm_write32reg(CHAN_CTRL, 0, 0x55);
+
+    //Frame control
+    dwm_write32reg(TX_FCTRL, 0, 0x15400C);
+
+    //sys_cfg
+    dwm_write32reg(SYS_CFG, 0, 0x1200);
+
+    //fs_x
+    dwm_write32reg(FS_CTRL, FS_PLLCFG, 0x0800041D);
+    dwm_write8reg(FS_CTRL, FS_PLLTUNE, 0xBE);
+    dwm_write8reg(FS_CTRL, FS_XTALT, 0x60);
+
+    //rf_conf
+    dwm_write24reg(RF_CONF, RF_CONF_TXCTRL, 0x001E3FE3);
+    dwm_write8reg(RF_CONF, RF_CONF_RXCTRLH, 0xD8);
+
+    //drx
+    dwm_write16reg(DRX_CONF, DRX_CONF_TUNE0b, 0x0001);
+    dwm_write16reg(DRX_CONF, DRX_CONF_TUNE1a, 0x008D);
+    dwm_write16reg(DRX_CONF, DRX_CONF_TUNE1b, 0x0010);
+    dwm_write32reg(DRX_CONF, DRX_CONF_TUNE2, 0x313B006B);
+    dwm_write16reg(DRX_CONF, DRX_CONF_TUNE4H, 0x0010);
+
+    //agc
+    dwm_write16reg(AGC_CTRL, AGC_CTRL_TUNE1, 0x889B);
+    dwm_write32reg(AGC_CTRL, AGC_CTRL_TUNE2, 0x2502A907);
+    dwm_write16reg(AGC_CTRL, AGC_CTRL_TUNE3, 0x0035);
+
+    //lde
+    dwm_write8reg(LDE_IF, LDE_CFG1, 0x6C);
+    dwm_write16reg(LDE_IF, LDE_CFG2, 0x0607);
+    dwm_write16reg(LDE_IF, LDE_REPC, 0x28F4);
+
+    //rx_cal
+    dwm_write8reg(TX_CAL, TX_CAL_PGDELAY, 0xC0);
+
+    //usr_sfd
+    dwm_write8reg(USR_SFD, 0, 8);
+
+    //rx/tx_antd
+    dwm_write16reg(LDE_IF, LDE_RXANTD, RX_ANT_DLY);
+    dwm_write16reg(TX_ANTD, 0, TX_ANT_DLY);
 }
 
 void dwm_configure(){
@@ -719,157 +759,6 @@ void dwm_rx(){
     for(int i = 0; i < rx_len; i++){
         ESP_LOGI(TAG, "Data received: %d %c", data[i], data[i]);
     }
-<<<<<<< HEAD
-}
-
-void dwm_configure(){
-    //SYS_CFG
-    uint32_t sys_cfg = dwm_read32reg(DWM_SYS_CFG, 0);
-    ESP_LOGI(TAG, "SYS_CFG configured to %X", sys_cfg);
-    sys_cfg |= (1 << 22);
-    sys_cfg &= ~(0x03 << 16);
-    dwm_write32reg(DWM_SYS_CFG, 0, sys_cfg);
-    ESP_LOGI(TAG, "New SYS_CFG configured to %X", dwm_read32reg(DWM_SYS_CFG, 0));
-
-    //Set LDE replica coefficient
-    dwm_write16reg(DWM_LDEIF, DWM_LDEIF_REPC, DWM_LDE_REPC_CODE9);
-    ESP_LOGI(TAG, "LDEIF REPC %X", dwm_read16reg(DWM_LDEIF, DWM_LDEIF_REPC));
-
-    //Set LDE config
-    dwm_write8reg(DWM_LDEIF, 0x0806, ((0x60) | (13)));
-    dwm_write16reg(DWM_LDEIF, 0x1806, 0x0607); // 16-bit LDE configuration tuning register
-    ESP_LOGI(TAG, "LDEIF 0x0806 %X", dwm_read8reg(DWM_LDEIF, 0x0806));
-    ESP_LOGI(TAG, "LDEIF 0x1806 %X", dwm_read16reg(DWM_LDEIF, 0x1806));
-
-    //Set channel 5 PLL CFG and Tune
-    dwm_write32reg(DWM_FSCTRL, DWM_FSCTRL_PLLCFG, DWM_FSCTRL_PLLCFG_CH5);
-    dwm_write8reg(DWM_FSCTRL, DWM_FSCTRL_PLLTUNE, DWM_FSCTRL_PLLTUNE_CH5);
-    ESP_LOGI(TAG, "FSCTRL_PLLCFG %X", dwm_read32reg(DWM_FSCTRL, DWM_FSCTRL_PLLCFG));
-    ESP_LOGI(TAG, "FSCTRL_PLLTUNE %X", dwm_read8reg(DWM_FSCTRL, DWM_FSCTRL_PLLTUNE));
-
-    //Configure TX and RX RF blocks
-    dwm_write8reg(DWM_RFCONF, DWM_RFCONF_RXCTRL, DWM_RFCONF_RXCTRL_CH5);
-    dwm_write24reg(DWM_RFCONF, DWM_RFCONF_TXCTRL, DWM_RFCONF_TXCTRL_CH5);
-    ESP_LOGI(TAG, "RFCONF_RXCTRL %X", dwm_read8reg(DWM_RFCONF, DWM_RFCONF_RXCTRL));
-    ESP_LOGI(TAG, "RFCONF_TXCTRL %X", dwm_read24reg(DWM_RFCONF, DWM_RFCONF_TXCTRL));
-
-    //Set SFD config for RX tune 0b
-    dwm_write16reg(DWM_DRX, DWM_DRX_TUNE0b, 0x0016);
-    ESP_LOGI(TAG, "DWM_DRX_TUNE0b %X", dwm_read16reg(DWM_DRX, DWM_DRX_TUNE0b));
-
-    //Set tune to 64 MHz PRF
-    dwm_write16reg(DWM_DRX, DWM_DRX_TUNE1a, 0x008D);
-    ESP_LOGI(TAG, "DWM_DRX_TUNE1a %X", dwm_read16reg(DWM_DRX, DWM_DRX_TUNE1a));
-
-    //Set BR to 110kbps
-    dwm_write16reg(DWM_DRX, DWM_DRX_TUNE1b, 0x0064);
-    ESP_LOGI(TAG, "DWM_DRX_TUNE1b %X", dwm_read16reg(DWM_DRX, DWM_DRX_TUNE1b));
-
-    //Set PAC size
-    dwm_write32reg(DWM_DRX, DWM_DRX_TUNE2, 0x353B015E);
-    ESP_LOGI(TAG, "DWM_DRX_TUNE2 %X", dwm_read32reg(DWM_DRX, DWM_DRX_TUNE2));
-    
-    //Set Smart Power stuff
-    dwm_write32reg(0x1E, 0, 0x25456585);
-
-    //Set expected preamble
-    dwm_write16reg(DWM_DRX, 0x26, 0x0028);
-    ESP_LOGI(TAG, "DWM_DRX_0x26 %X", dwm_read32reg(DWM_DRX, 0x26));
-
-    //Set SFD timeout
-    dwm_write16reg(DWM_DRX, DWM_DRX_SFDTOC, (1025 + 64 - 32)); //Preamble length + 1 + SFD - PAC
-    ESP_LOGI(TAG, "DWM_DRX_SFDTOC %X", dwm_read16reg(DWM_DRX, DWM_DRX_SFDTOC));
-
-    //Tune AGC
-    dwm_write16reg(DWM_AGC, DWM_AGC_TUNE1, DWM_AGC_TUNE1_64PRF);
-    dwm_write32reg(DWM_AGC, DWM_AGC_TUNE2, DWM_AGC_TUNE2_CONST);
-    dwm_write16reg(DWM_AGC, 0x12, 0x0035);
-    ESP_LOGI(TAG, "DWM_AGC_TUNE1 %X", dwm_read16reg(DWM_AGC, DWM_AGC_TUNE1      ));
-    ESP_LOGI(TAG, "DWM_AGC_TUNE2 %X", dwm_read32reg(DWM_AGC, DWM_AGC_TUNE2));
-    ESP_LOGI(TAG, "DWM_AGC_TUNE3 %X", dwm_read16reg(DWM_AGC, 0x12));
-
-    //Set SFD length
-    dwm_write8reg(DWM_USR_SFD, 0, 64);
-    ESP_LOGI(TAG, "DWM_USR_SFD %X", dwm_read8reg(DWM_USR_SFD, 0));
-
-    //Set channel PRF to 64MHz and preamble code to 9
-    uint32_t chan_ctrl = dwm_read32reg(DWM_CHAN_CTRL, 0);
-    chan_ctrl &= ~(0x03 << DWM_RXPRF); //Clear PRF settings
-    chan_ctrl &= ~(0xFFE00000); //Clear preamble codes
-    chan_ctrl |= (0x02 << DWM_RXPRF); //Set PRF to 64 MHz
-    chan_ctrl |= (0x09 << DWM_PCODE | 0x09 << (DWM_PCODE + 5));  //Preamble code = 9 on TX and RX
-    chan_ctrl |= (1 << 17); //Enable non-standard SFD
-    chan_ctrl |= (0x03 << 20); //Enable non-standard SFD on TX and RX
-    dwm_write32reg(DWM_CHAN_CTRL, 0, chan_ctrl);
-    ESP_LOGI(TAG, "CHAN_CTRL configured to %X", dwm_read32reg(DWM_CHAN_CTRL, 0));
-
-    //Configure TX frame control
-    uint32_t fctrl = dwm_read32reg(DWM_TX_FCTRL, 0);
-    fctrl &= ~(0x03 << DWM_TX_FCTRL_BR | 0x03 << DWM_TX_FCTRL_PRF | 0x03 << DWM_TX_FCTRL_PSR | 0x03 << DWM_TX_FCTRL_PE);
-    fctrl |= (0x02 << DWM_TX_FCTRL_PRF | 0x02 << DWM_TX_FCTRL_PSR); //PRF to 64 MHz and PSR to 1024 (bits to 10 each)
-    dwm_write32reg(DWM_TX_FCTRL, 0, fctrl);
-    ESP_LOGI(TAG, "DWM_TX_FCTRL configured to %X", dwm_read32reg(DWM_TX_FCTRL, 0));
-
-    //Set preamble detect timeout
-    dwm_write16reg(DWM_DRX, DWM_DRX_PRETOC, 31); //0 - disabled 8 - recommendedd
-    ESP_LOGI(TAG, "DWM_DRX_PRETOC configured to %X", dwm_read16reg(DWM_DRX, DWM_DRX_PRETOC));
-    
-    //TC channel 5
-    dwm_write8reg(DWM_TC, DWM_TC_PGDELAY, 0xC0);
-    ESP_LOGI(TAG, "DWM_TC_PGDELAY configured to %X", dwm_read8reg(DWM_TC, DWM_TC_PGDELAY));
-
-    //Apparently fixes some bug with SFD
-    dwm_write8reg(DWM_SYS_CTRL, 0, 0x42); // Request TX start and TRX off at the same time
-    ESP_LOGI(TAG, "DWM_SYS_CTRL configured to %X", dwm_read8reg(DWM_SYS_CTRL, 0));
-
-    //Set antenna delays
-    dwm_write16reg(DWM_LDEIF, DWM_LDEIF_RXANTD, RX_ANT_DLY);
-    dwm_write16reg(DWM_TXANTD, 0, TX_ANT_DLY);
-
-}
-
-void dwm_configure_new(){
-        //SYS_CFG 0x04
-        uint32_t cfg = 0;
-
-
-        //Smart TX power 0x1E
-
-        //Channel Control 0x1F
-
-        //Transmit Frame control 0x08
-
-        //Frequency Synth 0x2B
-
-        //Transmit channel 0x28
-
-        //Receiver channel 0x28
-
-        //DRX tunes 0x27
-
-        //LDE load 0x36 see details
-
-        //AGC tunes 0x23
-
-        //NTM in LDE 0x2E
-
-        //PGDELAY 0x2A
-
-        //PLLTUNE 0x2B
-
-        //LDELOAD
-
-        //LDOTUNE
-}
-
-void radio_get_temperature(){
-    dwm_write8reg(DWM_RFCONF, 0x11, 0x80); // Enable TLD Bias
-
-    dwm_write8reg(DWM_RFCONF, 0x12, 0x0A); // Enable TLD Bias and ADC Bias
-
-    dwm_write8reg(DWM_RFCONF, 0x12, 0x0f); // Enable Outputs (only after Biases are up and running)
-=======
->>>>>>> d78f0d4111c77c8e490f519d05778a6eea53c0b3
 
     uint32_t clear = dwm_read32reg(SYS_STATUS, 0);
     clear &= ~(1 << 7) | 0x7FF00;
@@ -1179,13 +1068,6 @@ void app_main(void)
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
     wifi_init_sta();
 
-<<<<<<< HEAD
-    //gpio_pad_select_gpio(6);
-    //gpio_set_direction(6, GPIO_MODE_OUTPUT);
-    //gpio_set_level(6, 0);
-
-=======
->>>>>>> d78f0d4111c77c8e490f519d05778a6eea53c0b3
     uart_config_t uart_config = {
         .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
@@ -1222,18 +1104,13 @@ void app_main(void)
 
     ESP_ERROR_CHECK(spi_bus_add_device(1, &devcfg, &spi));
 
-<<<<<<< HEAD
-    usleep(20000);
-    //dwm_configure_new();
-
-=======
     gpio_set_direction(PIN_NUM_RST, GPIO_MODE_INPUT);
 
     usleep(500000);
 
-    //dwm_initialize();
-
-    //dwm_configure();
+    dwm_initialize();
+    //dmw_default();
+    dwm_configure();
     //AGC tune configuration
     /*
     dwm_write16reg(AGC_CTRL, AGC_CTRL_TUNE1, 0x8870);
@@ -1260,11 +1137,6 @@ void app_main(void)
     gpio_pad_select_gpio(33);
     gpio_set_direction(33, GPIO_MODE_OUTPUT);
     gpio_set_level(33, 1);
->>>>>>> d78f0d4111c77c8e490f519d05778a6eea53c0b3
 
     xTaskCreate(tcp_server_task, "tcp_server", 4024, NULL, 5, NULL);
-
-    gpio_pad_select_gpio(33);
-    gpio_set_direction(33, GPIO_MODE_OUTPUT);
-    gpio_set_level(15, 1);
 }

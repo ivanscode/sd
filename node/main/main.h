@@ -19,17 +19,17 @@
 /*
 Wi-FI Settings
 */
-#define WIFI_SSID "Nelteberg Res"
-#define WIFI_PASS "Marybeth2020"
+#define WIFI_SSID "slowboi"
+#define WIFI_PASS "slowestofbois"
 #define MAXIMUM_RETRY  4
 #define PORT 25565
 
 /*
 Pinout
 */
-#define PIN_NUM_MISO 19 //PCB: 27 //DEV: 19
-#define PIN_NUM_MOSI 18 //14 //18
-#define PIN_NUM_CLK 5 //26 //5
-#define PIN_NUM_CS 27 //12 //27
-#define PIN_NUM_RST 15 //25 //15
+#define PIN_NUM_MISO 27 //PCB: 27 //DEV: 19
+#define PIN_NUM_MOSI 14 //14 //18
+#define PIN_NUM_CLK 26 //26 //5
+#define PIN_NUM_CS 12 //12 //27
+#define PIN_NUM_RST 25 //25 //15
 #define PIN_NUM_IRQ 32 //32 
