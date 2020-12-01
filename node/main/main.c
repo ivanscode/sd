@@ -841,6 +841,40 @@ void dwm_configure(){
 
 }
 
+void dwm_configure_new(){
+        //SYS_CFG 0x04
+        uint32_t cfg = 0;
+
+
+        //Smart TX power 0x1E
+
+        //Channel Control 0x1F
+
+        //Transmit Frame control 0x08
+
+        //Frequency Synth 0x2B
+
+        //Transmit channel 0x28
+
+        //Receiver channel 0x28
+
+        //DRX tunes 0x27
+
+        //LDE load 0x36 see details
+
+        //AGC tunes 0x23
+
+        //NTM in LDE 0x2E
+
+        //PGDELAY 0x2A
+
+        //PLLTUNE 0x2B
+
+        //LDELOAD
+
+        //LDOTUNE
+}
+
 void radio_get_temperature(){
     dwm_write8reg(DWM_RFCONF, 0x11, 0x80); // Enable TLD Bias
 
@@ -864,6 +898,29 @@ void radio_get_temperature(){
 
     char msg[2] = {volt, temp};
     send(sock, msg, 2, 0);
+}
+
+
+void step_one(){
+    gpio_set_level(11, 1);
+    usleep(1000);
+    gpio_set_level(11, 0);
+    usleep(1000);
+}
+
+uint16_t getMeasurement(){
+    uint8_t data[8];
+    while (1){
+        uart_read_bytes(UART_NUM_1, data, 8, 50);
+        //ESP_LOGI(TAG, "%02x", (char)byte[0]);
+        if(data[0] == 0x59 && data[1] == 0x59){
+            break;
+        }
+    }
+
+    uint16_t out =  data[2] + (data[3] << 8);
+
+    return out;
 }
 
 /*
@@ -897,10 +954,7 @@ static void do_retransmit()
 
             if(!strcmp(rx_buffer, "spin")){ //spin a lil'
                 for(int i = 0; i < 800; i++){
-                    gpio_set_level(14, 1);
-                    usleep(1000);
-                    gpio_set_level(14, 0);
-                    usleep(1000);
+                    step_one();
                 }
                 
             }
@@ -931,7 +985,8 @@ static void do_retransmit()
 
             if(!strcmp(rx_buffer, "measure")){
                 //xTaskCreate(scan_task, "scan_task", 4024, NULL, 5, NULL);
-                scan_task();
+                uint16_t dist = getMeasurement();
+                ESP_LOGI(TAG, "Measurement: %d", dist);
             }
 
             if(!strcmp(rx_buffer, "collect")){
@@ -1101,28 +1156,6 @@ void radio_spi_pre_transfer_callback(spi_transaction_t *t)
     //ESP_LOGI(TAG, "Transfer on SPI");
 }
 
-void step_one(){
-    gpio_set_level(14, 1);
-    usleep(1000);
-    gpio_set_level(14, 0);
-    usleep(1000);
-}
-
-uint16_t getMeasurement(){
-    uint8_t data[8];
-    while (1){
-        uart_read_bytes(UART_NUM_2, data, 8, 50);
-        //ESP_LOGI(TAG, "%02x", (char)byte[0]);
-        if(data[0] == 0x59 && data[1] == 0x59){
-            break;
-        }
-    }
-
-    uint16_t out =  data[2] + (data[3] << 8);
-
-    return out;
-}
-
 //void *pvParameters
 void scan_task(){
     char tx_buffer[2];
@@ -1152,15 +1185,9 @@ void app_main(void)
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
     wifi_init_sta();
 
-    gpio_pad_select_gpio(13);
-    gpio_set_direction(13, GPIO_MODE_OUTPUT);
-
-    gpio_pad_select_gpio(14);
-    gpio_set_direction(14, GPIO_MODE_OUTPUT);
-
-    gpio_pad_select_gpio(15);
-    gpio_set_direction(15, GPIO_MODE_OUTPUT);
-    gpio_set_level(15, 0);
+    //gpio_pad_select_gpio(6);
+    //gpio_set_direction(6, GPIO_MODE_OUTPUT);
+    //gpio_set_level(6, 0);
 
     uart_config_t uart_config = {
         .baud_rate = 115200,
@@ -1170,10 +1197,10 @@ void app_main(void)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_APB,
     };
-    uart_param_config(UART_NUM_2, &uart_config);
-    uart_set_pin(UART_NUM_2, 16, 17, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_param_config(UART_NUM_1, &uart_config);
+    uart_set_pin(UART_NUM_1, 9, 10, 4, 16);
     QueueHandle_t uart_queue;
-    uart_driver_install(UART_NUM_2, 1024, 1024, 10, &uart_queue, 0);
+    uart_driver_install(UART_NUM_1, 1024, 1024, 10, &uart_queue, 0);
 
     spi_bus_config_t buscfg={
         .miso_io_num = PIN_NUM_MISO,
@@ -1197,19 +1224,13 @@ void app_main(void)
 
     ESP_ERROR_CHECK(spi_bus_add_device(1, &devcfg, &spi));
 
-    ESP_LOGI(TAG, "Clocks before reset %X", dwm_read16reg(DWM_PMSC, 0));
+    usleep(20000);
+    //dwm_configure_new();
 
-    dwm_reset();
-
-    ESP_LOGI(TAG, "Clocks before init %X", dwm_read16reg(DWM_PMSC, 0));
-
-    dwm_initialize();
-
-    ESP_LOGI(TAG, "Clocks before configure %X", dwm_read16reg(DWM_PMSC, 0));
-
-    dwm_configure();
-
-    ESP_LOGI(TAG, "Clocks after dwm_configure %X", dwm_read16reg(DWM_PMSC, 0));
 
     xTaskCreate(tcp_server_task, "tcp_server", 4024, NULL, 5, NULL);
+
+    gpio_pad_select_gpio(33);
+    gpio_set_direction(33, GPIO_MODE_OUTPUT);
+    gpio_set_level(15, 1);
 }
