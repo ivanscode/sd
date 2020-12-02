@@ -1,0 +1,72 @@
+{% extends "public/templates/public_template.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block main %}
+
+<div class="container">
+    <div class="row">
+        <div class="col">
+            <h1>Home</h1>
+            <hr>
+            <h4>Getting Started</h4>
+            <hr>
+            <ol>
+                <li>Space nodes around room</li>
+                <li>Power on all nodes</li>
+            </ol>
+            <hr>
+            <h4>Find Nodes</h4>
+            <br>
+            <form action="/start" method="POST">
+                <button type="submit" class="btn btn-primary">Find Nodes</button>
+            </form>
+            <br>
+            {% if start %}
+                {% set node_list = find_nodes() %}
+                <p>{{ node_list | join(", ") }}</p>
+            
+                {% if node_list|length == 3 %}
+                    <p>Found all nodes!</p>
+                    <hr>
+                    <h4>Pair Nodes</h4>
+                    <br>
+                    <form action="/start?pair=true" method="POST">
+                        <button type="submit" class="btn btn-primary">Pair Nodes</button>
+                    </form>
+                    {% if pair %}
+                        {% set pairs = pair_nodes(node_list) %}
+                        <br>
+                        <p>{{ pairs }}</p>
+                        <hr>
+                        <h4>Calculate Distance</h4>
+                        <br>
+                        <form action="/start?pair=true&distance=true" method="POST">
+                            <button type="submit" class="btn btn-primary">Pair Nodes</button>
+                        </form>
+                        <br>
+                        {% if dist %}
+                            {% for node in node_list %}
+                                {% set node_num, dist = calculate_dist(node) %}
+                                <p>{{ node_num }}: {{ dist | join(", ") }}</p>
+                            {% endfor %}
+                            <hr>
+                            <h4>Create Map</h4>
+                            <br>
+                            <form action="/start?pair=true&distance=true&measure=true&slam=true" method="POST">
+                                <button type="submit" class="btn btn-primary">Create Map</button>
+                            </form>
+                            <br>
+                            {% if slam %}
+                                <img style="max-width: 400px;" src="static/img/teampic.jpg" alt="">
+                            {% endif %}
+                        {% endif %}
+                    {% endif %}
+                {% endif %}
+            {% endif%}
+
+        </div>
+    </div>
+</div>
+
+{% endblock %}
