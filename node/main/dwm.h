@@ -145,6 +145,10 @@ AGC automatic gain control configuration
 #define AGC_CTRL_TUNE2 0x0C
 #define AGC_CTRL_TUNE3 0x12
 /*
+EC_CTRL
+*/
+#define EC_CTRL 0x24
+/*
 ACC_MEM read access to accumulator data memory
 */
 #define ACC_MEM 0x25

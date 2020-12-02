@@ -17,6 +17,8 @@ static uint64_t final_tx_ts;
 static uint64_t final_rx_ts;
 static uint64_t resp_tx_ts;
 
+uint8_t counter = 0;
+
 typedef struct {
     uint8_t cmd[8];
     uint8_t databytes; //No of data in data; bit 7 = delay after set; 0xFF = end of cmds.
@@ -347,6 +349,8 @@ void dwm_initialize(){
     dwm_enableclocks(AUTO_CLK);
 
     usleep(100000);
+    dwm_write8reg(EC_CTRL, 0, 1 << 2);
+    usleep(100000);
     ESP_LOGI(TAG, "System Status after init: %X", dwm_read32reg(SYS_STATUS, 0));
 
     ESP_LOGI(TAG, "Stored voltage reading: %d V", dwm_otpread(0x008) & 0xFF);
@@ -507,11 +511,11 @@ void dwm_configure(){
 
 void sayHello(){
     //Clear TX flags
-    //dwm_clearTX();
+    dwm_clearTX();
     ESP_LOGI(TAG, "System Status before hello: %X", dwm_read32reg(SYS_STATUS, 0));
 
     //Set transmit buffer
-    uint8_t hello[] = {0, 0, 'h', 'e', 'l', 'l', 'o', 0, 0};
+    uint8_t hello[] = {counter, 0, 'h', 'e', 'l', 'l', 'o', 0, 0};
     dwm_set_txbuffer(hello, sizeof(hello) - 2);
 
     //Read transmit config
@@ -551,6 +555,11 @@ void sayHello(){
     ESP_LOGI(TAG, "STATUS: %X", status);
 
     ESP_LOGI(TAG, "Sent!");
+
+    if(counter > 127)
+        counter = 0;
+    else
+        counter++;
 }
 
 void range_respond(){
@@ -566,7 +575,7 @@ void range_respond(){
     while (!((status_reg = dwm_read32reg(SYS_STATUS, 0)) & (SYS_STATUS_RXFCS | SYS_STATUS_ALL_RX_ERR))){}; //FCS, FTO, PTO
 
     if(status_reg & SYS_STATUS_RXFCS){ //Good rx
-        ESP_LOGI(TAG, "Frame Received INIT");
+        ESP_LOGI(TAG, "Frame Received INIT -> %X", status_reg);
         dwm_write32reg(SYS_STATUS, 0, SYS_STATUS_RXFCS); //Clear rx event
 
         uint8_t rx_len = (uint8_t)(dwm_read32reg(RX_FINFO, 0) & 0x7F);
@@ -597,7 +606,7 @@ void range_respond(){
         while (!((status_reg = dwm_read32reg(SYS_STATUS, 0)) & (SYS_STATUS_RXFCS | 1 << 17 | 1 << 21 | SYS_STATUS_ALL_RX_ERR))){}; //FCS, FTO, PTO
 
         if(status_reg & SYS_STATUS_RXFCS){ //Good rx
-            ESP_LOGI(TAG, "Frame Received FINAL");
+            ESP_LOGI(TAG, "Frame Received FINAL -> %X", status_reg);
             dwm_write32reg(SYS_STATUS, 0, SYS_STATUS_RXFCS | SYS_STATUS_TXFRS); //Clear rx event
 
             uint8_t rx_len = (uint8_t)(dwm_read32reg(RX_FINFO, 0) & 0x7F);
@@ -672,7 +681,7 @@ void range_init(){
     while(!((status_reg = dwm_read32reg(SYS_STATUS, 0)) & (SYS_STATUS_RXFCS | 1 << 17 | 1 << 21 | SYS_STATUS_ALL_RX_ERR))){}; //FCS, FTO, PTO
 
     if(status_reg & SYS_STATUS_RXFCS){ //Good rx
-        ESP_LOGI(TAG, "Received Frame INTER");
+        ESP_LOGI(TAG, "Received Frame INTER -> %X", status_reg);
         //Clear good RX frame event and TX frame sent in the DW1000 status register
         dwm_write32reg(SYS_STATUS, 0, SYS_STATUS_RXFCS | SYS_STATUS_TXFRS);
 
@@ -761,22 +770,23 @@ void dwm_rx(){
     }
 
     uint32_t clear = dwm_read32reg(SYS_STATUS, 0);
-    clear &= ~(1 << 7) | 0x7FF00;
+    clear |= (1 << 7) | 0x7FF00;
     dwm_write32reg(SYS_STATUS, 0, clear);
 }
 
 
 void step_one(){
-    gpio_set_level(11, 1);
+    gpio_set_level(15, 1);
     usleep(1000);
-    gpio_set_level(11, 0);
+    gpio_set_level(15, 0);
     usleep(1000);
 }
 
+/*
 uint16_t getMeasurement(){
     uint8_t data[8];
     while (1){
-        uart_read_bytes(UART_NUM_1, data, 8, 50);
+        uart_read_bytes(UART_NUM_2, data, 8, 50);
         //ESP_LOGI(TAG, "%02x", (char)byte[0]);
         if(data[0] == 0x59 && data[1] == 0x59){
             break;
@@ -786,6 +796,61 @@ uint16_t getMeasurement(){
     uint16_t out =  data[2] + (data[3] << 8);
 
     return out;
+}
+*/
+
+static void tf_config() {
+    //enter param config mode
+    uart_flush(UART_NUM_2);
+    char config[8] = { 0x42, 0x57, 0x02, 0, 0, 0, 0x01, 0x02 };
+    uart_write_bytes(UART_NUM_2, config, sizeof(uint8_t) * 8);
+    uart_wait_tx_done(UART_NUM_2, 10); //wait till tx is empty or 100 rtos ticks
+
+    int received = 0;
+    uart_get_buffered_data_len(UART_NUM_2, (size_t*)&received);
+    while(received < 8) {
+        uart_get_buffered_data_len(UART_NUM_2, (size_t*)&received);
+    }
+    uint8_t compare_arr[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    uart_read_bytes(UART_NUM_2, compare_arr, 8, 100);
+
+    //set trigger to external 
+    memcpy(config, (char[]){0x42, 0x57, 0x02, 0, 0, 0, 0, 0x40}, 8);
+    uart_write_bytes(UART_NUM_2, config, sizeof(uint8_t) * 8);
+    uart_wait_tx_done(UART_NUM_2, 100); //wait till tx is empty or 100 rtos ticks
+
+    uart_get_buffered_data_len(UART_NUM_2, (size_t*)&received);
+    while(received < 8) {
+        uart_get_buffered_data_len(UART_NUM_2, (size_t*)&received);
+    }
+    uart_read_bytes(UART_NUM_2, compare_arr, 8, 100);
+}
+
+uint16_t getMeasurement() {
+    char config[8] = { 0x42, 0x57, 0x02, 0, 0, 0, 0x01, 0x02 };
+    uart_write_bytes(UART_NUM_2, config, sizeof(uint8_t) * 8);
+    uart_wait_tx_done(UART_NUM_2, 10);
+
+    int received = 0;
+    uart_get_buffered_data_len(UART_NUM_2, (size_t*)&received);
+    while(received < 8) {
+        uart_get_buffered_data_len(UART_NUM_2, (size_t*)&received);
+    }
+    uint8_t compare_arr[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    uart_read_bytes(UART_NUM_2, compare_arr, 8, 100);
+
+    //pull trig
+    memcpy(config, (char[]){0x42,0x57,0x02,0,0,0,0,0x41}, 8);
+    uart_write_bytes(UART_NUM_2, config, sizeof(uint8_t) * 8);
+    uart_wait_tx_done(UART_NUM_2, 100); 
+
+    while(received < 9) {
+        uart_get_buffered_data_len(UART_NUM_2, (size_t*)&received);
+    }
+    uint8_t result[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    uart_read_bytes(UART_NUM_2, result, 9, 100);
+    uint16_t ret = result[2] | (result[3] << 8);
+    return ret;
 }
 
 /*
@@ -1036,6 +1101,7 @@ void scan_task(){
         send(sock, tx_buffer, 2, 0);
 
         step_one();
+        usleep(1000);
     }
 }
 
@@ -1076,10 +1142,10 @@ void app_main(void)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_APB,
     };
-    uart_param_config(UART_NUM_1, &uart_config);
-    uart_set_pin(UART_NUM_1, 9, 10, 4, 16);
+    uart_param_config(UART_NUM_2, &uart_config);
+    uart_set_pin(UART_NUM_2, 17, 16, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     QueueHandle_t uart_queue;
-    uart_driver_install(UART_NUM_1, 1024, 1024, 10, &uart_queue, 0);
+    uart_driver_install(UART_NUM_2, 1024, 1024, 10, &uart_queue, 0);
 
     spi_bus_config_t buscfg={
         .miso_io_num = PIN_NUM_MISO,
@@ -1091,7 +1157,7 @@ void app_main(void)
     };
 
     spi_device_interface_config_t devcfg={
-        .clock_speed_hz=10*10000,           //Clock out at 0.01 MHz
+        .clock_speed_hz=10*1000,           //Clock out at 0.01 MHz
         .mode=0,                                //SPI mode 0
         .spics_io_num = PIN_NUM_CS,              //CS pin
         .queue_size = 7,                          //We want to be able to queue 7 transactions at a time
@@ -1108,31 +1174,17 @@ void app_main(void)
 
     usleep(500000);
 
-    dwm_initialize();
-    //dmw_default();
-    dwm_configure();
-    //AGC tune configuration
-    /*
-    dwm_write16reg(AGC_CTRL, AGC_CTRL_TUNE1, 0x8870);
-    dwm_write32reg(AGC_CTRL, AGC_CTRL_TUNE2, 0x2502A907);
+    gpio_pad_select_gpio(15);
+    gpio_set_direction(15, GPIO_MODE_OUTPUT);
+    gpio_set_level(15, 0);
 
-    ESP_LOGI(TAG, "AGC_CTRL_TUNE1 is %X", dwm_read16reg(AGC_CTRL, AGC_CTRL_TUNE1));
-    ESP_LOGI(TAG, "AGC_CTRL_TUNE2 is %X", dwm_read32reg(AGC_CTRL, AGC_CTRL_TUNE2));
+    gpio_pad_select_gpio(2);
+    gpio_set_direction(2, GPIO_MODE_OUTPUT);
+    gpio_set_level(2, 1);
 
-    dwm_write32reg(DRX_CONF, DRX_CONF_TUNE2, 0x311A002D);
+    tf_config();
 
-    dwm_write16reg(LDE_IF, LDE_CFG2, 0x1607);
-
-    dwm_write32reg(TX_POWER, 0, 0x0E082848);
-
-    dwm_write24reg(RF_CONF, RF_CONF_TXCTRL, 0x001E3FE3);
-
-    dwm_write8reg(TX_CAL, TX_CAL_PGDELAY, 0xC0);
-
-    dwm_write8reg(FS_CTRL, FS_PLLTUNE, 0xBE);
-    */
-
-
+    dwm_reset();
 
     gpio_pad_select_gpio(33);
     gpio_set_direction(33, GPIO_MODE_OUTPUT);

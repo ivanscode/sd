@@ -3,7 +3,7 @@ import socket
 import time
 import threading
 
-IP = '192.168.1.58'
+IP = '192.168.1.6'
 
 class deviceThread(threading.Thread):
    def __init__(self, cmd, ip):
@@ -24,7 +24,7 @@ def process():
     #thread1.join()
     #thread2.join()
     device1 = sm.SocketManager(IP)
-    device2 = sm.SocketManager('192.168.1.59')
+    device2 = sm.SocketManager('192.168.1.7')
     device1.send('range')
     time.sleep(1)
     device2.send('init')

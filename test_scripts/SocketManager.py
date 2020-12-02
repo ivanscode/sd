@@ -23,7 +23,7 @@ class SocketManager:
         try:
             print('Trying {}'.format(ip))
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.settimeout(50)
+            self.sock.settimeout(80)
         except socket.error as msg:
             print('Could not create socket: ' + str(msg[0]) + ': ' + msg[1])
             sys.exit(1)
@@ -40,7 +40,7 @@ class SocketManager:
         pass
 
     def collectData(self):
-        f = open("data.txt", "a")
+        f = open("data.txt", "w")
         self.sock.sendall('collect'.encode())
         if(self.sock.recv(2).decode() != 'ok'):
             return
