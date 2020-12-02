@@ -1,0 +1,3 @@
+pip install numpy==1.19.3
+pip install scipy==1.5.4
+pip install pygame==2.0.0
