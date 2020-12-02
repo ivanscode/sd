@@ -19,8 +19,8 @@
 /*
 Wi-FI Settings
 */
-#define WIFI_SSID "slowboi"
-#define WIFI_PASS "slowestofbois"
+#define WIFI_SSID "4theboys"
+#define WIFI_PASS "GoPurdue!"
 #define MAXIMUM_RETRY  4
 #define PORT 25565
 

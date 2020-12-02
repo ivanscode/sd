@@ -5,8 +5,8 @@ import _thread as thread
 
 DEVICE_COUNT = 3 #Not used atm
 NET_BASE = '192.168.1.' #Change depending on network
-RL = 6 #From IP.2
-RH = 8 #To IP.20
+RL = 35 #From IP.2
+RH = 40 #To IP.20
 
 class Command:
     def __init__(self, data):
