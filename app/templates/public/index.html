@@ -47,7 +47,7 @@
                         <br>
                         <h4>Calculate Distance</h4>
                         <br>
-                        <form action="/start?pair=true&measure=true&slam=false" method="POST">
+                        <form action="/start?pair=false&measure=true&slam=false" method="POST">
                             <button type="submit" class="btn btn-primary">Calculate Distance</button>
                         </form>
                         <br>
@@ -58,11 +58,14 @@
                             <hr>
                             <h4>Create Map</h4>
                             <br>
-                            <form action="/start?pair=true&measure=true&slam=true" method="POST">
+                            <form action="/start?pair=false&measure=false&slam=true" method="POST">
                                 <button type="submit" class="btn btn-primary">Create Map</button>
                             </form>
                             <br>
                             {% if slam %}
+                            {% for k in myMap.distances %}
+                                <p><strong>{{ k }}</strong> </p>
+                            {% endfor %}
                                 <img style="max-width: 400px;" src="static/img/test.png" alt="">
                             {% endif %}
                         {% endif %}

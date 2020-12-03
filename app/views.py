@@ -13,6 +13,7 @@ import SocketManager as sm
 import socket
 import _thread as thread
 import threading
+import Master
 
 DEVICE_COUNT = 3 #Not used atm
 NET_BASE = '192.168.1.' #Change depending on network
@@ -27,6 +28,7 @@ class RoomMap:
         self.dist = {}
         self.data = {}
         self.allnodes = False
+        self.distances = []
 
     def scan(self, addr):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -41,11 +43,8 @@ class RoomMap:
     def find_nodes(self):
         self.nodes = {}
         idx = 0
-        for stem in range(RL, RH):
-            
+        for stem in range(RL, RH):  
             addr = NET_BASE + str(stem)
-            
-            
             if(self.scan(addr)):
                 print('{} is available'.format(addr))
                 time.sleep(0.5) #Need to wait for socket to reopen
@@ -107,19 +106,18 @@ def start():
 
     if args.get("pair") == "true":
         myMap.pair_nodes()
+        print("Pairing")
         pair = True
     if args.get("measure") == "true":
         myMap.calculate_dist()
+        print("Measuring")
+        pair = True
         measure = True
     if args.get("slam") == "true":
-        FILES = ['ivan_room.txt']
-        nodes = []
-        for i in range(len(FILES)):
-            n = Node.Node(0, 0, 0, i)
-            n.set_measurement_file(FILES[i])
-            n.segment()
-            nodes.append(n)
-        Drawer.draw_to_image(nodes, [], 'app/static/img/test.png')
+        print("Slamming")
+        myMap.distances = Master.run(myMap.data)
+        pair = True
+        measure = True
         slam = True
         pygame.display.quit()
         #pygame.quit()
