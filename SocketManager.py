@@ -42,9 +42,10 @@ class SocketManager:
             return
         for i in range(800):
             single = self.sock.recv(2)
+            print(single)
             single = int.from_bytes(single, 'little')
             self.data.append(single)
-            #print('Distance of {} from node @ {}'.format(single, self.ip))
+            print('Distance of {} from node @ {}'.format(single, self.ip))
 
 
     def send(self, cmd):
