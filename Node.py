@@ -5,7 +5,7 @@ import math
 from Drawer import draw
 
 # Measurements greater will be thrown out. For real data only.
-THROW_OUT_THRESHOLD = 12
+THROW_OUT_THRESHOLD = 4
 
 # All simulation parameters below
 # LIDAR

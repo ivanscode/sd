@@ -45,7 +45,7 @@ def run(dicts):
 
 		s = SLAM.SLAM(nodes)
 		distances = s.solve_multi()
-		Drawer_CV2.draw_to_image(nodes, [], 'render.png')
+		Drawer_CV2.draw_to_image(nodes, [], 'app/static/img/render.png')
 		return distances
 	except Exception as e:
 		if EMERGENCY_SAFE:

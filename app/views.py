@@ -17,8 +17,8 @@ import Master
 
 DEVICE_COUNT = 3 #Not used atm
 NET_BASE = '192.168.1.' #Change depending on network
-RL = 37 #From IP.2
-RH = 40 #To IP.20
+RL = 38 #From IP.2
+RH = 50 #To IP.20
 
 class RoomMap:
     def __init__(self, name):
@@ -120,6 +120,7 @@ def start():
         measure = True
         slam = True
         pygame.display.quit()
+        time.sleep(1)
         #pygame.quit()
     #print(args)
 
