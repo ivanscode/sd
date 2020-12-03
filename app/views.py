@@ -13,6 +13,7 @@ import SocketManager as sm
 import socket
 import _thread as thread
 import threading
+import Master
 
 DEVICE_COUNT = 3 #Not used atm
 NET_BASE = '192.168.1.' #Change depending on network
@@ -27,6 +28,7 @@ class RoomMap:
         self.dist = {}
         self.data = {}
         self.allnodes = False
+        self.distances = []
 
     def scan(self, addr):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -112,14 +114,8 @@ def start():
         myMap.calculate_dist()
         measure = True
     if args.get("slam") == "true":
-        FILES = ['ivan_room.txt']
-        nodes = []
-        for i in range(len(FILES)):
-            n = Node.Node(0, 0, 0, i)
-            n.set_measurement_file(FILES[i])
-            n.segment()
-            nodes.append(n)
-        Drawer.draw_to_image(nodes, [], 'app/static/img/test.png')
+        
+        myMap.distances = Master.run(myMap.data)
         slam = True
         pygame.display.quit()
         #pygame.quit()

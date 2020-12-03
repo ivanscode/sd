@@ -63,6 +63,9 @@
                             </form>
                             <br>
                             {% if slam %}
+                            {% for k in myMap.distances %}
+                                <p><strong>{{ k }}</strong> </p>
+                            {% endfor %}
                                 <img style="max-width: 400px;" src="static/img/test.png" alt="">
                             {% endif %}
                         {% endif %}
