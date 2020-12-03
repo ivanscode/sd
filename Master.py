@@ -19,7 +19,7 @@ def run(dicts):
 		n = Node.Node(0, 0, 0, k)
 		n.from_list(v)
 		nodes.append(n)
-	s = SLAM.SLAM(nodes)
+	s = SLAM.solve_multi(nodes)
 	distances = s.solve_nodes()
 	Drawer.draw_to_image(nodes, [], 'render.png')
 	return distances
