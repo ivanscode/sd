@@ -19,6 +19,7 @@ class Command:
 class SocketManager:
     def __init__(self, ip):
         self.ip = ip
+        self.data = []
 
         try:
             print('Trying {}'.format(ip))
@@ -35,22 +36,15 @@ class SocketManager:
             self.sock.close()
             sys.exit(1)
 
-    def startThread(self):
-        #No need for this right now
-        pass
-
     def collectData(self):
-        f = open("data.txt", "w")
         self.sock.sendall('collect'.encode())
         if(self.sock.recv(2).decode() != 'ok'):
             return
         for i in range(800):
-            data = self.sock.recv(2)
-            f.write("{}\n".format(int.from_bytes(data, 'little')))
-            print('Distance of {} from node @ {}'.format(int.from_bytes(data, 'little'), self.ip))
-        
-        
-        f.close()
+            single = self.sock.recv(2)
+            single = int.from_bytes(single, 'little')
+            self.data.append(single)
+            #print('Distance of {} from node @ {}'.format(single, self.ip))
 
 
     def send(self, cmd):
