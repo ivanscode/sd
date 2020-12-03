@@ -329,6 +329,24 @@ class SLAM:
 							break
 		return count
 
+def score(n0, n1):
+	n0.dedensify(MIN_DISTANCE_BETWEEN_MEASUREMENTS)
+	n1.dedensify(MIN_DISTANCE_BETWEEN_MEASUREMENTS)
+	s = SLAM([n0, n1])
+	return s.solve_single((0,0))[1]
+
+def get_worst(nodes, existing):
+	if not existing:
+		return nodes[0]
+	worst = nodes[0]
+	worst_score = None
+	for n in nodes:
+		s = max(score(n, e) for e in existing)
+		if worst_score is None or s < worst_score:
+			worst_score = s
+			worst = n
+	return worst
+
 if __name__ == '__main__':
 	node0 = Node.Node(0,0,0,0)
 	node1 = Node.Node(1,0,0,1)
