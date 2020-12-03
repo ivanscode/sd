@@ -2,7 +2,7 @@ import pygame
 from Math_Functions import Point
 import Wall
 
-PIXELS_PER_METER = 1.5
+PIXELS_PER_METER = 60
 BORDER_WIDTH = 0
 
 BLACK = (0,0,0)
@@ -47,8 +47,8 @@ class Drawer():
 			pygame.draw.circle(surface, color, self.xy_to_pixel(p.x(), p.y()), 3)
 
 
-	def draw_node_segments(self, node, surface, sameColor=False):
-		segments = node.get_pred_segments()
+	def draw_node_segments(self, node, surface, sameColor=False, dedensified=False):
+		segments = node.get_pred_segments(dedensified=dedensified)
 		for i in range(len(segments)):
 			color = rainbow_color(i if not sameColor else 0)
 			self.draw_points(segments[i], color, surface)
@@ -73,13 +73,13 @@ class Drawer():
 				continue
 			break
 
-	def draw_surface(self, nodes, walls, change_colors):
+	def draw_surface(self, nodes, walls, change_colors, dedensified=False):
 		pygame.init()
 		self.min_x = min(list(min(p.x() for p in n.get_pred_points()) for n in nodes) + list(w.minx() for w in walls))
 		self.min_y = min(list(min(p.y() for p in n.get_pred_points()) for n in nodes) + list(w.miny() for w in walls))
 
-		self.max_x = max(list(max(p.x() for p in n.get_pred_points()) for n in nodes) + list(w.minx() for w in walls))
-		self.max_y = max(list(max(p.y() for p in n.get_pred_points()) for n in nodes) + list(w.miny() for w in walls))
+		self.max_x = max(list(max(p.x() for p in n.get_pred_points()) for n in nodes) + list(w.maxx() for w in walls))
+		self.max_y = max(list(max(p.y() for p in n.get_pred_points()) for n in nodes) + list(w.maxy() for w in walls))
 
 		self.window_width = (self.max_x - self.min_x) * PIXELS_PER_METER + BORDER_WIDTH * 2
 		self.window_height = (self.max_y - self.min_y) * PIXELS_PER_METER + BORDER_WIDTH * 2
@@ -89,9 +89,9 @@ class Drawer():
 		for w in walls:
 			self.draw_wall(w, gameDisplay)
 		for n in nodes:
-			self.draw_points([Point(n.real_x, n.real_y)], BLACK, gameDisplay)
-			self.draw_points(n.get_pred_points(), BLACK, gameDisplay)
-			self.draw_node_segments(n, gameDisplay,sameColor=not change_colors)
+			self.draw_points([Point(n.pred_x, n.pred_y)], BLACK, gameDisplay)
+			self.draw_points(n.get_pred_points(dedensified=dedensified), BLACK, gameDisplay)
+			self.draw_node_segments(n, gameDisplay, sameColor=not change_colors, dedensified=dedensified)
 		return gameDisplay
 
 	def build(self):
