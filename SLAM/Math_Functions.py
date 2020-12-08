@@ -129,6 +129,15 @@ def triangulate(x0, y0, x1, y1, d0, d1):
 	return (x0 + c * math.cos(angle_possibilities[0]), y0 + c * math.sin(angle_possibilities[0])), \
 			(x0 + c * math.cos(angle_possibilities[1]), y0 + c * math.sin(angle_possibilities[1]))
 
+def dist_from_orthogonal(angle):
+	angle = abs(restrict_to_unit_circle(angle))
+	return min((abs(angle), abs(angle - math.pi / 2), abs(angle - math.pi)))
+
+def anglediff_abs(a1, a2):
+	angle = abs(restrict_to_unit_circle(a1 - a2))
+	if angle > math.pi / 2:
+		angle -= math.pi / 2
+	return angle
 
 def fpeq(a, b):
 	return abs( a- b) < FP_EQUAL_TOLERANCE

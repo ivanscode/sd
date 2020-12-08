@@ -7,60 +7,66 @@
 <div class="container">
     <div class="row">
         <div class="col">
-            <h1>Home</h1>
+            <h1>Dynamic Sensor Array</h1>
+            <hr>
+            <h4>Team 13</h4>
+            <img style="max-width: 400px;" src="static/img/teampic.jpg" alt="">
             <hr>
             <h4>Getting Started</h4>
             <hr>
             <ol>
-                <li>Space nodes around room</li>
+                <li>Space nodes strategically around room</li>
+                <ul>
+                    <li>Within line of sight of each other</li>
+                    <li>With 12 meters apart from each other</li>
+                  </ul>
                 <li>Power on all nodes</li>
+                <ul>
+                    <li>Nodes properly booted when green led is on</li>
+                  </ul>
             </ol>
             <hr>
             <h4>Find Nodes</h4>
             <br>
-            <form action="/start" method="POST">
+            <form action="/start?pair=true" method="POST">
                 <button type="submit" class="btn btn-primary">Find Nodes</button>
             </form>
             <br>
             {% if start %}
-                <p><strong>Found: </strong>{{ myMap.nodes | join(", ") }}</p>
+                <p><strong>Found: </strong>
+                {% for k,v in myMap.nodes.items() %}
+                    <p>Node: {{ k }}</p>
+                {% endfor %}</p>
             
-                {% if myMap.nodes|length == 3 %}
+                {% if myMap.nodes|length >= 1 %}
                     <div class="alert alert-success" role="alert">
                         Found all nodes!
                       </div>
                     <hr>
-                    <h4>Pair Nodes</h4>
-                    <br>
-                    <form action="/start?pair=true&measure=false&slam=false" method="POST">
-                        <button type="submit" class="btn btn-primary">Pair Nodes</button>
-                    </form>
                     {% if pair %}
                         <br>
-                        {% for k,v in myMap.pairs.items() %}
-                            <p><strong>Pair: </strong>{{ k }}, has distance {{ v }}</p>
-                        {% endfor %}
-
-                        <hr>
                         <h4>Calculate Distance</h4>
                         <br>
-                        <form action="/start?pair=true&measure=true&slam=false" method="POST">
-                            <button type="submit" class="btn btn-primary">Pair Nodes</button>
+                        <form action="/start?pair=false&measure=true&slam=false" method="POST">
+                            <button type="submit" class="btn btn-primary">Calculate Distance</button>
                         </form>
                         <br>
                         {% if measure %}
-                            {% for k, v in myMap.dist.items() %}
-                                <p><strong>{{ k }}:</strong> {{ v | join(", ") }}</p>
+                            {% for k, v in myMap.data.items() %}
+                                <p><strong>{{ k }}:</strong> Done </p>
                             {% endfor %}
                             <hr>
                             <h4>Create Map</h4>
                             <br>
-                            <form action="/start?pair=true&measure=true&slam=true" method="POST">
+                            <form action="/start?pair=false&measure=false&slam=true" method="POST">
                                 <button type="submit" class="btn btn-primary">Create Map</button>
                             </form>
                             <br>
                             {% if slam %}
-                                <img style="max-width: 400px;" src="static/img/test.png" alt="">
+                            {% for k in myMap.distances %}
+                                <p><strong>{{ k }}</strong> </p>
+                            {% endfor %}
+                                <img style="max-width: 400px;" src="static/img/render.png" alt="">
                             {% endif %}
                         {% endif %}
                     {% endif %}

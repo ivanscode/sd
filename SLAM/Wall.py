@@ -6,8 +6,6 @@ class Wall:
 		self.p0 = p0
 		self.p1 = p1
 
-	def perp(self): return Point(self.perpx(), self.perpy())
-
 	def x0(self): return self.p0.x()
 
 	def x1(self): return self.p1.x()
@@ -46,32 +44,54 @@ class Wall:
 		if v: possibilities.append(v)
 		v = distance_to_two_sided(self.x1(), self.y1(), other.perpt(), other.x0(), other.y0(), other.x1(), other.y1())
 		if v: possibilities.append(v)
+		possibilities.append(self.min_corner_distance(other))
 		return min(possibilities)
 
-	def perpx(self):
-		m = (self.y1() - self.y0()) / (self.x1() - self.x0())
-		b = self.y0() - self.x0() * m
-		return -b / (m + 1 / m)
+	def min_corner_distance(self, other):
+		return min([
+			self.p0.distance_to(other.p0),
+			self.p0.distance_to(other.p1),
+			self.p1.distance_to(other.p0),
+			self.p1.distance_to(other.p1)
+		])
 
-	def perpy(self):
+	def angle_between(self, other):
+		angle = abs(restrict_to_unit_circle(self.perpt() - other.perpt()))
+		if angle > math.pi / 2:
+			angle = math.pi - angle
+		return angle
+
+	def forms_corner_or_straight(self, other, angle_tolerance, distance_tolerance):
+		angle = self.angle_between(other)
+		if angle < angle_tolerance:
+			return self.min_distance_to_wall(other, distance_tolerance) < distance_tolerance
+		if abs(angle - math.pi / 2) < angle_tolerance:
+			return self.min_corner_distance(other) < distance_tolerance
+		return False
+
+	def perp(self):
 		m = (self.y1() - self.y0()) / (self.x1() - self.x0())
 		b = self.y0() - self.x0() * m
-		return b / (m*m + 1)
+		return Point(-b / (m + 1 / m), b / (m*m + 1))
 
 	def translate(self, x_offset, y_offset, angle_offset):
 		return Wall(self.p0.translate(x_offset, y_offset, angle_offset), self.p1.translate(x_offset, y_offset, angle_offset))
 
 	def fuse(self, other, distance_tolerance, angle_tolerance):
-		#print('Attempting to fuse walls:')
-		#print('\t' + str(self))
-		#print('\t' + str(other))
-		anglediff = abs(restrict_to_unit_circle(self.perpt() - other.perpt()))
-		if abs(anglediff) > angle_tolerance and (math.pi - anglediff) > angle_tolerance: return None
+		PRINT_DEBUG = False
+		if PRINT_DEBUG: print('\tFusing:')
+		if PRINT_DEBUG: print('\t\t' + str(self))
+		if PRINT_DEBUG: print('\t\t' + str(other))
+
+		if self.angle_between(other) > angle_tolerance:
+			if PRINT_DEBUG: print('\t\tFailed. Angle ' + str(anglediff) + ' > tolerance.')
+			return None
 
 		# Also makes sure the walls overlap
 		mindist = min((self.min_distance_to_wall(other, distance_tolerance), other.min_distance_to_wall(self, distance_tolerance)))
-		#print('Mindist calculated: %f' % mindist)
-		if mindist > distance_tolerance: return None
+		if mindist > distance_tolerance:
+			if PRINT_DEBUG: print('\t\tFailed. Distance %f > tolerance.' % mindist)
+			return None
 
 		# I'm just going to take the outer two points and connect them. If this doesn't work, maybe try a more intelligent approach
 		pts = [self.p0, self.p1, other.p0, other.p1]
@@ -86,16 +106,32 @@ class Wall:
 
 		return Wall(*maxpair)
 
+	def intersection(self, other):
+		# https://stackoverflow.com/questions/20677795/how-do-i-compute-the-intersection-point-of-two-lines
+		x1, y1, x2, y2 = self.p0.x(), self.p0.y(), self.p1.x(), self.p1.y()
+		x3, y3, x4, y4 = other.p0.x(), other.p0.y(), other.p1.x(), other.p1.y()
+		x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4))
+		y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4))
+		return Point(x, y)
+
+	def does_touch(self, other):
+		# https://stackoverflow.com/questions/20677795/how-do-i-compute-the-intersection-point-of-two-lines
+		x1, y1, x2, y2 = self.p0.x(), self.p0.y(), self.p1.x(), self.p1.y()
+		x3, y3, x4, y4 = other.p0.x(), other.p0.y(), other.p1.x(), other.p1.y()
+		x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4))
+		y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4))
+		return x > min(self.x0(), self.x1()) and x < max(self.x0(), self.x1())
+
 	def __str__(self):
 		return 'Wall(Point%s, Point%s),\t\tPerpendicular point %s, r theta %s' % (str(self.p0), str(self.p1), str(self.perp()), self.perp().rthetastr())
 
 if __name__ == '__main__':
 	walls = [
-		Wall(Point(3.498724, -4.585215), Point(6.018046, -1.868769)),
-		Wall(Point(3.917032, -4.170225), Point(6.058277, -1.909813)),
+		Wall(Point(0, 0), Point(.01, 5)),
+		Wall(Point(.2, 0), Point(.1, 5)),
 	]
-	for i in range(0, len(walls) - 1):
-		for j in range(i+1, len(walls)):
-			print(walls[i].fuse(walls[j], .1, .5))
-	Drawer.PIXELS_PER_METER = 100
+	for i in range(len(walls) - 1):
+		for j in range(i + 1, len(walls)):
+			print(walls[i].forms_corner_or_straight(walls[j], .1, .3))
+	Drawer.PIXELS_PER_METER = 50
 	Drawer.draw([], walls)

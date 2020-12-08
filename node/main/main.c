@@ -777,9 +777,9 @@ void dwm_rx(){
 
 void step_one(){
     gpio_set_level(15, 1);
-    usleep(1000);
+    usleep(100);
     gpio_set_level(15, 0);
-    usleep(1000);
+    usleep(100);
 }
 
 /*
@@ -826,6 +826,12 @@ static void tf_config() {
     uart_read_bytes(UART_NUM_2, compare_arr, 8, 100);
 }
 
+void sendTrig(){
+    char config[8] = { 0x42,0x57,0x02,0,0,0,0,0x41 };
+    uart_write_bytes(UART_NUM_2, config, sizeof(uint8_t) * 8);
+    uart_wait_tx_done(UART_NUM_2, 100); 
+}
+
 uint16_t getMeasurement() {
     char config[8] = { 0x42, 0x57, 0x02, 0, 0, 0, 0x01, 0x02 };
     uart_write_bytes(UART_NUM_2, config, sizeof(uint8_t) * 8);
@@ -840,16 +846,36 @@ uint16_t getMeasurement() {
     uart_read_bytes(UART_NUM_2, compare_arr, 8, 100);
 
     //pull trig
-    memcpy(config, (char[]){0x42,0x57,0x02,0,0,0,0,0x41}, 8);
-    uart_write_bytes(UART_NUM_2, config, sizeof(uint8_t) * 8);
-    uart_wait_tx_done(UART_NUM_2, 100); 
+    sendTrig(); 
 
+    int checksum = 0x59 + 0x59;
+
+    /*
     while(received < 9) {
         uart_get_buffered_data_len(UART_NUM_2, (size_t*)&received);
-    }
+    }*/
+    
     uint8_t result[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint64_t check = 0;
     uart_read_bytes(UART_NUM_2, result, 9, 100);
+    for(int i = 0; i < 8; i++){
+        check += result[i];
+    }
+
+    while((check & 0xFF) != result[8]){
+        sendTrig();
+        check = 0;
+        memcpy(result, (uint8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0}, 9);
+        uart_read_bytes(UART_NUM_2, result, 9, 100);
+        for(int i = 0; i < 8; i++){
+            check += result[i];
+        }
+        
+    }
+    
     uint16_t ret = result[2] | (result[3] << 8);
+
+    uart_flush(UART_NUM_2);
     return ret;
 }
 
@@ -1090,10 +1116,10 @@ void radio_spi_pre_transfer_callback(spi_transaction_t *t){
 
 //void *pvParameters
 void scan_task(){
+    gpio_set_level(2, 1);
     char tx_buffer[2];
     for(int i = 0; i < 800; i++){
         uint16_t dist = getMeasurement();
-        ESP_LOGI(TAG, "Measurement: %d", dist);
 
         tx_buffer[0] = dist & 0xFF;
         tx_buffer[1] = dist >> 8;
@@ -1101,8 +1127,10 @@ void scan_task(){
         send(sock, tx_buffer, 2, 0);
 
         step_one();
-        usleep(1000);
+        usleep(2000);
     }
+
+    gpio_set_level(2, 0);
 }
 
 static void IRAM_ATTR gpio_isr_handler(void* arg){
@@ -1180,7 +1208,7 @@ void app_main(void)
 
     gpio_pad_select_gpio(2);
     gpio_set_direction(2, GPIO_MODE_OUTPUT);
-    gpio_set_level(2, 1);
+    gpio_set_level(2, 0);
 
     tf_config();
 
