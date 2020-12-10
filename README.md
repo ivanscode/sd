@@ -50,13 +50,15 @@ The bulk of the software in this repository aside from ESP code is the SLAM proc
 | DWM1000 | Distance measurements between nodes |
 | DRV8834 | Stepper motor driver |
 | MPM3601 | 3V buck converter |
-| UBEC 5V | 5V buck converter |
+| UBEC 5V (Adafruit) | 5V buck converter |
+| TFMini | Distance measurements to obstacles |
 
 ### PCB
 ![PCB](.doc/pcb.jpg)
 
 **Figure 3** A revision 2 board. Note: revision 3 has same layout, but different GPIO pins are used.
 ### Packaging
+The packaging for the nodes was designed by Tanner Andrulis and was printed using PLA.
 
 ## Programming
 ### ESP-IDF
@@ -70,6 +72,7 @@ Programming requires the use of a USB-Serial cable and can be found on [Adafruit
 
 ## Frontend - Optional
 ### Flask
+The frontend is setup with Flask working as the lightweight server. Because it's written in Python, we could easily reference our existing scripts that communicated with the nodes and integrate them with Flask and by extension, the user interface.
 
 ## Dependencies
 ### For SLAM
