@@ -1,11 +1,11 @@
 from Math_Functions import *
 
-#N = 8
-#START_SIGMA = .0001
-#EXPAND_SIGMA = 0#START_SIGMA / 100000
-#COMBINE_SIGMA = .005
-#EXPAND_DISTANCE_LIMIT = .1
-#TEST_COUNT = 300
+"""
+LS2D algorithm adapted from:
+Peter, M., Jafri, S. R., &amp; Vosselman, G. (2017). 
+Line Segmentation Of 2D Laser Scanner Point Clouds For Indoor SlamBased On A Range Of Residuals. 
+ISPRS Annals of Photogrammetry, Remote Sensing and Spatial Information Sciences, IV-2/W4, 363-369. doi:10.5194/isprs-annals-iv-2-w4-363-2017
+"""
 
 N = 8
 START_SIGMA = .001
